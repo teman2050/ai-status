@@ -1,5 +1,5 @@
 import { t } from "./i18n";
-import type { NetworkStatus, TaskInfo, VisibleStatus } from "./types";
+import type { NetworkStatus, QuotaUsage, TaskInfo, VisibleStatus } from "./types";
 
 export const DONE_TTL_MS = 4000; // done_event shows for 3~5s; use 4s
 
@@ -145,6 +145,49 @@ export function formatQuotaShort(hint: string, now: number = Date.now()): string
     hour12: false,
   });
   return `${cd} · ${clock}`;
+}
+
+/**
+ * Approaching-limit warnings from live rate-limit usage (Codex): one line per window
+ * (5h / weekly) that has <=20% remaining and hasn't reset yet. Empty when nothing is low.
+ * The percent shown is what's LEFT (100 - used); the reset is the window's rollover.
+ */
+export function quotaWarnings(
+  usage: QuotaUsage,
+  now: number = Date.now(),
+): string[] {
+  const out: string[] = [];
+  const add = (
+    used: number,
+    resetEpoch: number,
+    label: string,
+    kind: "clock" | "date",
+  ) => {
+    const remaining = 100 - used;
+    if (remaining > 20) return; // warn only when <=20% left
+    const resetMs = resetEpoch * 1000;
+    if (resetEpoch > 0 && resetMs <= now) return; // window already reset -> not low anymore
+    const pct = Math.max(0, Math.round(remaining));
+    let line = `${label} · ${t("q_remaining")} ${pct}%`;
+    if (resetEpoch > 0) {
+      const when =
+        kind === "clock"
+          ? new Date(resetMs).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: false,
+            })
+          : new Date(resetMs).toLocaleDateString([], {
+              month: "short",
+              day: "numeric",
+            });
+      line += ` · ${when}`;
+    }
+    out.push(line);
+  };
+  add(usage.h5_used, usage.h5_reset, t("q_5h"), "clock");
+  add(usage.week_used, usage.week_reset, t("q_weekly"), "date");
+  return out;
 }
 
 export function formatTokens(total?: number | null): string {

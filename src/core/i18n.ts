@@ -36,6 +36,8 @@ const T: Dict = {
   q_generic: { zh: "配额", en: "Quota" },
   q_reached: { zh: "用完", en: "reached" },
   q_left: { zh: "还剩", en: "resets in" },
+  q_remaining: { zh: "剩余", en: "remaining" },
+  q_low_title: { zh: "配额即将用尽", en: "Quota running low" },
   q_throttled: { zh: "服务限流，重试中", en: "Rate limited, retrying" },
   working: { zh: "处理中", en: "Working" },
   waiting_input: { zh: "等待输入", en: "Waiting for input" },

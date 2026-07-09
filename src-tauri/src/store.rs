@@ -9,8 +9,6 @@ pub const DONE_TTL: Duration = Duration::from_secs(5);
 /// During normal work PostToolUse events keep arriving; a long gap usually means the user interrupted
 /// (an interrupt in Claude Code doesn't fire the Stop hook) or the session was lost. A new event restores the real status.
 pub const RUNNING_STALE_TTL: Duration = Duration::from_secs(300);
-/// waiting / paused are allowed to be idle longer (awaiting confirmation or a quota reset can take a while).
-pub const WAITING_STALE_TTL: Duration = Duration::from_secs(1800);
 /// Only reclaim a task row after 60 min of silence (back to idle, no ✓ — completion is expressed only by task_done).
 pub const REMOVE_TTL: Duration = Duration::from_secs(3600);
 /// paused (out of quota) is a known-reason pause; reclaim is relaxed to 3 hours (a usage reset can be far off).
@@ -148,6 +146,19 @@ pub struct ToolView {
     /// Quota exhaustion is a tool-level state (the whole account hit its limit, not a single task).
     /// When Some("session|9:30pm"), the frontend hides all this tool's tasks and shows one red quota row.
     pub quota: Option<String>,
+    /// Live quota usage (currently Codex only, parsed from rollout rate_limits). The frontend shows a
+    /// warning when a window is close to its limit. None when unknown.
+    pub quota_usage: Option<QuotaUsage>,
+}
+
+/// A tool's rate-limit usage across its windows (Codex: primary = 5h, secondary = weekly).
+/// `*_used` is the percent used (0-100); `*_reset` is the epoch-seconds reset time.
+#[derive(Debug, Clone, Serialize)]
+pub struct QuotaUsage {
+    pub h5_used: f64,
+    pub h5_reset: i64,
+    pub week_used: f64,
+    pub week_reset: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -208,6 +219,7 @@ pub struct Store {
     tasks: HashMap<String, TaskEntry>,
     network: &'static str, // ok / flaky / down, updated by the net probe thread
     last_limit_scan: Instant,
+    quota_usage: HashMap<String, QuotaUsage>, // tool_id -> live window usage (Codex)
 }
 
 impl Store {
@@ -219,6 +231,19 @@ impl Store {
             network: "ok",
             // subtract one interval so the first call scans immediately
             last_limit_scan: Instant::now() - LIMIT_SCAN_INTERVAL,
+            quota_usage: HashMap::new(),
+        }
+    }
+
+    /// Record a tool's live rate-limit usage (called by the Codex rollout watcher). None clears it.
+    pub fn set_quota_usage(&mut self, tool_id: &str, usage: Option<QuotaUsage>) {
+        match usage {
+            Some(u) => {
+                self.quota_usage.insert(tool_id.to_string(), u);
+            }
+            None => {
+                self.quota_usage.remove(tool_id);
+            }
         }
     }
 
@@ -232,6 +257,7 @@ impl Store {
                 status: "connected".to_string(),
                 updated_at: ts.to_string(),
                 quota: None, // computed dynamically from tasks in tools_snapshot; placeholder here
+                quota_usage: None, // filled from the quota_usage map in tools_snapshot
             });
         entry.status = "connected".to_string();
         entry.updated_at = ts.to_string();
@@ -400,17 +426,16 @@ impl Store {
                 _ => silence < REMOVE_TTL,
             }
         });
-        // running/waiting silent past the threshold become stale, awaiting a new event to recover.
-        // paused is a known-reason pause (quota), not degraded to stale.
+        // A running task gone silent means the session is idle — waiting for the user's next input.
+        // (Claude Code doesn't write the transcript while sitting at a prompt / a question.) So show
+        // it as waiting, not "lost": if the process had actually died, the watcher would remove the
+        // tool. paused is a known-reason pause (quota), left as-is.
         for t in self.tasks.values_mut() {
-            let threshold = match t.visible_status.as_str() {
-                "running" => RUNNING_STALE_TTL,
-                "waiting" => WAITING_STALE_TTL,
-                _ => continue, // error / paused / stale / done don't convert
-            };
-            if now.saturating_duration_since(t.last_event) >= threshold {
-                t.visible_status = "stale".to_string();
-                t.summary = String::new(); // stale text is localized on the frontend
+            if t.visible_status == "running"
+                && now.saturating_duration_since(t.last_event) >= RUNNING_STALE_TTL
+            {
+                t.visible_status = "waiting".to_string();
+                t.summary = String::new();
             }
         }
     }
@@ -464,6 +489,7 @@ impl Store {
             .cloned()
             .map(|mut tv| {
                 tv.quota = quota.get(&tv.tool_id).cloned();
+                tv.quota_usage = self.quota_usage.get(&tv.tool_id).cloned();
                 tv
             })
             .collect();
@@ -649,7 +675,7 @@ mod tests {
     }
 
     #[test]
-    fn silent_running_becomes_stale_not_removed() {
+    fn silent_running_becomes_waiting_not_removed() {
         let mut s = Store::new();
         s.apply(ev("task_started", Some("t1")));
         let now = Instant::now();
@@ -657,30 +683,30 @@ mod tests {
         assert_eq!(s.tasks_snapshot(now)[0].visible_status, "running", "stays running within 5 min");
         s.purge(now + Duration::from_secs(301));
         let tasks = s.tasks_snapshot(now);
-        assert_eq!(tasks.len(), 1, "stale is not gone");
-        assert_eq!(tasks[0].visible_status, "stale");
+        assert_eq!(tasks.len(), 1, "a silent session isn't gone");
+        assert_eq!(tasks[0].visible_status, "waiting", "silent running -> waiting for the user, not lost");
         assert_eq!(tasks[0].summary, "", "text localized on frontend, backend summary empty");
     }
 
     #[test]
-    fn silent_waiting_becomes_stale_later() {
+    fn waiting_stays_waiting_when_silent() {
         let mut s = Store::new();
         s.apply(ev("task_started", Some("t1")));
         s.apply(ev("task_waiting", Some("t1")));
         let now = Instant::now();
         s.purge(now + Duration::from_secs(301));
-        assert_eq!(s.tasks_snapshot(now)[0].visible_status, "waiting", "waiting 5 min is not stale");
+        assert_eq!(s.tasks_snapshot(now)[0].visible_status, "waiting");
         s.purge(now + Duration::from_secs(1801));
-        assert_eq!(s.tasks_snapshot(now)[0].visible_status, "stale");
+        assert_eq!(s.tasks_snapshot(now)[0].visible_status, "waiting", "a silent waiting task stays waiting, not lost");
     }
 
     #[test]
-    fn stale_removed_only_after_remove_ttl() {
+    fn idle_removed_only_after_remove_ttl() {
         let mut s = Store::new();
         s.apply(ev("task_started", Some("t1")));
         let now = Instant::now();
         s.purge(now + Duration::from_secs(1800));
-        assert_eq!(s.tasks_snapshot(now).len(), 1, "stale row kept up to 60 min");
+        assert_eq!(s.tasks_snapshot(now).len(), 1, "idle row kept up to 60 min");
         s.purge(now + Duration::from_secs(3601));
         assert!(s.tasks_snapshot(now).is_empty(), "reclaimed after 60 min of silence");
     }
@@ -736,7 +762,7 @@ mod tests {
         for t in s.tasks.values_mut() {
             t.last_event = Instant::now() - Duration::from_secs(400);
         }
-        // without a heartbeat, becomes stale
+        // without a heartbeat, a silent running task becomes waiting (idle, awaiting the user)
         {
             let mut s2 = Store::new();
             let started2 = ev("task_started", Some("t2"));
@@ -745,7 +771,7 @@ mod tests {
                 t.last_event = Instant::now() - Duration::from_secs(400);
             }
             s2.purge(Instant::now());
-            assert_eq!(s2.tasks_snapshot(Instant::now())[0].visible_status, "stale");
+            assert_eq!(s2.tasks_snapshot(Instant::now())[0].visible_status, "waiting");
         }
         // transcript just written; refresh_liveness pulls last_event back to now, so purge won't mark stale
         s.refresh_liveness();
@@ -910,12 +936,12 @@ mod tests {
     }
 
     #[test]
-    fn event_revives_stale_task() {
+    fn event_revives_idle_task() {
         let mut s = Store::new();
         s.apply(ev("task_started", Some("t1")));
         let now = Instant::now();
         s.purge(now + Duration::from_secs(301));
-        assert_eq!(s.tasks_snapshot(now)[0].visible_status, "stale");
+        assert_eq!(s.tasks_snapshot(now)[0].visible_status, "waiting");
         let mut update = ev("task_update", Some("t1"));
         update.status = Some("running".to_string());
         s.apply(update);

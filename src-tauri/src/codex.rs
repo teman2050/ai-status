@@ -1,4 +1,4 @@
-use crate::store::{IncomingEvent, Store};
+use crate::store::{IncomingEvent, QuotaUsage, Store};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -157,6 +157,66 @@ fn scan_active(base: &PathBuf) -> HashMap<String, (String, &'static str)> {
     active
 }
 
+/// Parse the last `token_count` event's `rate_limits` from a rollout tail.
+/// primary = 5h window, secondary = weekly window; each has used_percent + resets_at (epoch seconds).
+fn parse_rate_limits(tail: &[String]) -> Option<QuotaUsage> {
+    for line in tail.iter().rev() {
+        if !line.contains("\"rate_limits\"") {
+            continue;
+        }
+        let v: serde_json::Value = serde_json::from_str(line).ok()?;
+        // real rollout wraps it as {"type":"event_msg","payload":{"type":"token_count","rate_limits":{..}}};
+        // fall back to a top-level rate_limits in case a future format flattens it.
+        let rl = v
+            .get("payload")
+            .and_then(|p| p.get("rate_limits"))
+            .or_else(|| v.get("rate_limits"))?;
+        let win = |k: &str| -> (f64, i64) {
+            rl.get(k)
+                .map(|w| {
+                    (
+                        w.get("used_percent").and_then(|x| x.as_f64()).unwrap_or(0.0),
+                        w.get("resets_at").and_then(|x| x.as_i64()).unwrap_or(0),
+                    )
+                })
+                .unwrap_or((0.0, 0))
+        };
+        let (h5_used, h5_reset) = win("primary");
+        let (week_used, week_reset) = win("secondary");
+        return Some(QuotaUsage {
+            h5_used,
+            h5_reset,
+            week_used,
+            week_reset,
+        });
+    }
+    None
+}
+
+/// Read the newest rollout file's tail and parse its latest rate-limit usage.
+/// The quota is account-wide, so the most recent reading is the current one.
+fn latest_rate_limits(base: &PathBuf) -> Option<QuotaUsage> {
+    let mut newest: Option<(SystemTime, PathBuf)> = None;
+    for day in recent_day_dirs(base) {
+        let Ok(rd) = fs::read_dir(&day) else {
+            continue;
+        };
+        for entry in rd.flatten() {
+            let p = entry.path();
+            if p.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            if let Ok(mt) = fs::metadata(&p).and_then(|m| m.modified()) {
+                if newest.as_ref().map(|(t, _)| mt > *t).unwrap_or(true) {
+                    newest = Some((mt, p));
+                }
+            }
+        }
+    }
+    let (_, path) = newest?;
+    parse_rate_limits(&read_tail(&path))
+}
+
 pub fn start(store: Arc<Mutex<Store>>) {
     let base = dirs_codex_sessions();
     thread::spawn(move || {
@@ -183,6 +243,10 @@ pub fn start(store: Arc<Mutex<Store>>) {
                         s.apply(event("codex", "task_done", id, "Codex", ""));
                     }
                 }
+            }
+            // report the latest rate-limit usage (5h + weekly) for the quota warning; keep last-known if none
+            if let Some(usage) = latest_rate_limits(&base) {
+                store.lock().unwrap().set_quota_usage("codex", Some(usage));
             }
             let cur: HashMap<String, &'static str> =
                 active.iter().map(|(k, (_, st))| (k.clone(), *st)).collect();
@@ -250,5 +314,36 @@ mod tests {
         assert_eq!(workspace_from_cwd("/a/b/SizeKit/"), "SizeKit");
         assert_eq!(workspace_from_cwd("/a/b/SizeKit"), "SizeKit");
         assert_eq!(workspace_from_cwd(""), "Codex");
+    }
+
+    #[test]
+    fn parse_rate_limits_from_token_count() {
+        // real rollout shape: primary = 5h window, secondary = weekly window
+        let line = r#"{"timestamp":"2026-07-07T14:16:54","type":"event_msg","payload":{"type":"token_count","info":{},"rate_limits":{"limit_id":"codex","primary":{"used_percent":7.0,"window_minutes":300,"resets_at":1783407231},"secondary":{"used_percent":28.0,"window_minutes":10080,"resets_at":1783881282},"plan_type":"plus"}}}"#.to_string();
+        let u = parse_rate_limits(&[line]).unwrap();
+        assert_eq!(u.h5_used, 7.0);
+        assert_eq!(u.h5_reset, 1783407231);
+        assert_eq!(u.week_used, 28.0);
+        assert_eq!(u.week_reset, 1783881282);
+    }
+
+    #[test]
+    fn parse_rate_limits_takes_latest() {
+        let lines = vec![
+            r#"{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":1.0,"resets_at":10},"secondary":{"used_percent":2.0,"resets_at":20}}}}"#.to_string(),
+            r#"{"type":"response_item","payload":{"type":"custom_tool_call"}}"#.to_string(),
+            r#"{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":90.0,"resets_at":11},"secondary":{"used_percent":95.0,"resets_at":21}}}}"#.to_string(),
+        ];
+        let u = parse_rate_limits(&lines).unwrap();
+        assert_eq!(u.h5_used, 90.0, "the latest reading wins");
+        assert_eq!(u.week_used, 95.0);
+    }
+
+    #[test]
+    fn parse_rate_limits_none_when_absent() {
+        let lines = vec![
+            r#"{"type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}"#.to_string(),
+        ];
+        assert!(parse_rate_limits(&lines).is_none());
     }
 }

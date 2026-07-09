@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { t } from "../core/i18n";
-import { formatQuotaRow, toolAccent } from "../core/status";
+import { formatQuotaRow, quotaWarnings, toolAccent } from "../core/status";
 import type { NetworkStatus, TaskInfo, ToolInfo } from "../core/types";
 import { QuotaIcon } from "./QuotaIcon";
 import { TaskRow } from "./TaskRow";
@@ -22,6 +22,8 @@ export function ToolSection({
   network: NetworkStatus;
 }) {
   const style = { "--accent": toolAccent(tool.tool_id) } as CSSProperties;
+  // Approaching-limit warnings (Codex 5h / weekly), shown before the account is actually blocked.
+  const warnings = tool.quota_usage ? quotaWarnings(tool.quota_usage) : [];
   // Quota exhaustion is tool-level: the whole account hit its limit, so hide all its tasks and
   // show one red quota row + countdown/reset time.
   // Network trouble is a separate signal, still shown under quota (otherwise the user can't tell
@@ -50,6 +52,14 @@ export function ToolSection({
       <div className="tool-header">
         <span className="tool-name">{tool.tool_name}</span>
       </div>
+      {warnings.map((w, i) => (
+        <div className="task-row quota-warn" key={`qw-${i}`}>
+          <span className="status-icon quota-warn-icon" title={t("q_low_title")}>
+            ⚠
+          </span>
+          <span className="quota-warn-text">{w}</span>
+        </div>
+      ))}
       {network !== "ok" && (
         <div className="task-row">
           <span className={`status-icon ${network === "down" ? "net-down" : "net-flaky"}`}>⇄</span>

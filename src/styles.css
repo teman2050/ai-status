@@ -299,6 +299,25 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* approaching-limit warning row (Codex 5h / weekly), before the account is actually blocked:
+   amber, a plain warning glyph (no ring) — deliberately calmer than the red exhausted clock. */
+.quota-warn-icon {
+  border: none;
+  color: var(--yellow);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.quota-warn-text {
+  flex: 1 1 auto;
+  color: var(--yellow);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .status-icon.stale {
   border-color: var(--yellow); /* stale, awaiting recovery: yellow ring + blinking ⇄ */
   color: var(--yellow);
