@@ -11,7 +11,7 @@ const POLL_SECS: u64 = 5;
 // runs long commands without writing logs, keep it "running" as long as the tail is still
 // task_started (not complete), to avoid false-completion flicker.
 const ACTIVE_WINDOW: Duration = Duration::from_secs(600);
-const TAIL_BYTES: u64 = 64 * 1024;
+const TAIL_BYTES: u64 = 1024 * 1024;
 
 /// Determine the current turn status from the rollout tail: take the last relevant event_msg.
 /// task_started -> running; turn_aborted -> error (aborted); task_complete -> None (finished).
@@ -33,13 +33,26 @@ pub fn turn_status(tail_lines: &[String]) -> Option<&'static str> {
 }
 
 fn workspace_from_cwd(cwd: &str) -> String {
-    let trimmed = cwd.trim_end_matches('/');
-    trimmed
-        .rsplit('/')
+    let trimmed = cwd.trim_end_matches(|c| c == '/' || c == '\\');
+    let basename = trimmed
+        .rsplit(|c| c == '/' || c == '\\')
         .next()
         .filter(|s| !s.is_empty())
         .unwrap_or("Codex")
-        .to_string()
+        .to_string();
+    normalize_workspace_name(&basename)
+}
+
+fn normalize_workspace_name(name: &str) -> String {
+    for prefix in ["https-github-com-", "github-com-"] {
+        if let Some(rest) = name.strip_prefix(prefix) {
+            let parts: Vec<&str> = rest.split('-').filter(|s| !s.is_empty()).collect();
+            if parts.len() >= 2 {
+                return parts[1..].join("-");
+            }
+        }
+    }
+    name.to_string()
 }
 
 fn parse_session_meta(first_line: &str) -> Option<(String, String)> {
@@ -257,7 +270,9 @@ pub fn start(store: Arc<Mutex<Store>>) {
 }
 
 fn dirs_codex_sessions() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default();
     PathBuf::from(home).join(".codex").join("sessions")
 }
 
@@ -313,6 +328,7 @@ mod tests {
     fn workspace_from_cwd_basename() {
         assert_eq!(workspace_from_cwd("/a/b/SizeKit/"), "SizeKit");
         assert_eq!(workspace_from_cwd("/a/b/SizeKit"), "SizeKit");
+        assert_eq!(workspace_from_cwd(r"C:\Users\Admin\proj\LifeAdminPet\"), "LifeAdminPet");
         assert_eq!(workspace_from_cwd(""), "Codex");
     }
 
@@ -345,5 +361,14 @@ mod tests {
             r#"{"type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}"#.to_string(),
         ];
         assert!(parse_rate_limits(&lines).is_none());
+    }
+
+    #[test]
+    fn workspace_from_generated_github_slug() {
+        assert_eq!(
+            workspace_from_cwd(r"C:\Users\Admin\Documents\Codex\2026-07-09\https-github-com-teman2050-ai-status"),
+            "ai-status"
+        );
+        assert_eq!(normalize_workspace_name("github-com-owner-my-repo"), "my-repo");
     }
 }

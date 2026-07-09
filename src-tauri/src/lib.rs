@@ -6,7 +6,13 @@ mod store;
 mod watcher;
 
 use config::{Config, ConfigDir, ConfigState};
-use std::sync::{Arc, Mutex};
+use std::{
+    fs::OpenOptions,
+    io::Write,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tauri::{Emitter, Manager, State};
 
 fn status_color(s: &str) -> (u8, u8, u8) {
@@ -121,26 +127,116 @@ fn apply_floating<R: tauri::Runtime>(app: &tauri::AppHandle<R>, visible: bool) {
     }
 }
 
-/// Position the window directly below the menu-bar icon.
-fn position_below_tray<R: tauri::Runtime>(win: &tauri::WebviewWindow<R>, rect: tauri::Rect) {
+fn window_diag_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
+    if let Ok(path) = std::env::var("AI_STATUS_DIAG_PATH") {
+        return Ok(PathBuf::from(path));
+    }
+    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    Ok(dir.join("window-diagnostics.jsonl"))
+}
+
+fn write_window_diag<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    label: &str,
+    payload: serde_json::Value,
+) -> Result<(), String> {
+    let path = window_diag_path(app)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let ts_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_millis();
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| e.to_string())?;
+    let entry = serde_json::json!({
+        "ts_ms": ts_ms,
+        "label": label,
+        "payload": payload,
+    });
+    writeln!(file, "{entry}").map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn record_window_diag(
+    app: tauri::AppHandle,
+    label: String,
+    payload: serde_json::Value,
+) -> Result<(), String> {
+    write_window_diag(&app, &label, payload)
+}
+
+/// Position the window near the tray icon and keep it inside the monitor work area.
+fn position_near_tray<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    win: &tauri::WebviewWindow<R>,
+    rect: tauri::Rect,
+) {
     use tauri::PhysicalPosition;
     let scale = win.scale_factor().unwrap_or(1.0);
     let pos = rect.position.to_physical::<f64>(scale);
     let size = rect.size.to_physical::<f64>(scale);
-    let win_w = win.outer_size().map(|s| s.width as f64).unwrap_or(320.0);
+    let outer = win.outer_size().ok();
+    let win_w = outer.as_ref().map(|s| s.width as f64).unwrap_or(400.0);
+    let win_h = outer.as_ref().map(|s| s.height as f64).unwrap_or(620.0);
+    let (work_x, work_y, work_w, work_h) = if let Ok(Some(mon)) = win.current_monitor() {
+        let work = mon.work_area();
+        (
+            work.position.x as f64,
+            work.position.y as f64,
+            work.size.width as f64,
+            work.size.height as f64,
+        )
+    } else {
+        (0.0, 0.0, 1920.0, 1080.0)
+    };
+    let gap = 8.0;
     let mut x = pos.x + size.width / 2.0 - win_w / 2.0;
-    let y = pos.y + size.height + 2.0;
-    if x < 8.0 {
-        x = 8.0;
+    x = x.clamp(work_x + gap, work_x + work_w - win_w - gap);
+
+    let tray_center_y = pos.y + size.height / 2.0;
+    let below_y = pos.y + size.height + gap;
+    let above_y = pos.y - win_h - gap;
+    let prefer_below = tray_center_y < work_y + work_h / 2.0;
+    let mut y = if prefer_below { below_y } else { above_y };
+    if y < work_y + gap {
+        y = below_y;
     }
-    if let Ok(Some(mon)) = win.current_monitor() {
-        let mx = mon.position().x as f64;
-        let mw = mon.size().width as f64;
-        if x + win_w > mx + mw - 8.0 {
-            x = mx + mw - win_w - 8.0;
-        }
+    if y + win_h > work_y + work_h - gap {
+        y = above_y;
     }
+    y = y.clamp(work_y + gap, work_y + work_h - win_h - gap);
     let _ = win.set_position(PhysicalPosition::new(x, y));
+    let _ = write_window_diag(
+        app,
+        "panel-position",
+        serde_json::json!({
+            "scale": scale,
+            "tray": {
+                "x": pos.x,
+                "y": pos.y,
+                "width": size.width,
+                "height": size.height,
+            },
+            "panel": {
+                "width": win_w,
+                "height": win_h,
+                "x": x,
+                "y": y,
+                "prefer_below": prefer_below,
+            },
+            "work_area": {
+                "x": work_x,
+                "y": work_y,
+                "width": work_w,
+                "height": work_h,
+            },
+        }),
+    );
 }
 
 /// Clicking the tray icon toggles the menu-bar panel (positioned below the icon).
@@ -149,7 +245,7 @@ fn toggle_panel_below_tray<R: tauri::Runtime>(app: &tauri::AppHandle<R>, rect: t
         if win.is_visible().unwrap_or(false) {
             let _ = win.hide();
         } else {
-            position_below_tray(&win, rect);
+            position_near_tray(app, &win, rect);
             let _ = win.show();
             let _ = win.set_focus();
         }
@@ -199,7 +295,12 @@ pub fn run() {
     let store = Arc::new(Mutex::new(store::Store::new()));
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![get_config, set_config, quit_app])
+        .invoke_handler(tauri::generate_handler![
+            get_config,
+            set_config,
+            quit_app,
+            record_window_diag
+        ])
         .setup(move |app| {
             use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
@@ -308,6 +409,23 @@ pub fn run() {
                     _ => {}
                 })
                 .build(app)?;
+
+            if std::env::var("AI_STATUS_DIAG_OPEN_PANEL").ok().as_deref() == Some("1") {
+                let app_handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(1500));
+                    if let (Some(win), Some(tray)) = (
+                        app_handle.get_webview_window("panel"),
+                        app_handle.tray_by_id("asb-tray"),
+                    ) {
+                        if let Ok(Some(rect)) = tray.rect() {
+                            position_near_tray(&app_handle, &win, rect);
+                            let _ = win.show();
+                            let _ = win.set_focus();
+                        }
+                    }
+                });
+            }
 
             // floating widget: apply config (always-on-top, visibility) and dock to the top-right
             if let Some(win) = app.get_webview_window("main") {

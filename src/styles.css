@@ -8,6 +8,7 @@
   --fg: #e8e8ea; /* primary text: tool/task names */
   --dim: #a2a5ac; /* secondary: summaries */
   --dim2: #868a92; /* tertiary: time/token/labels */
+  --widget-edge: rgba(9, 10, 13, 0.92);
   /* vivid colors are reserved for status icons */
   --green: #22e07a;
   --yellow: #ffc02e;
@@ -23,6 +24,7 @@
   --fg: #17181b;
   --dim: #45484f;
   --dim2: #63666d;
+  --widget-edge: rgba(190, 196, 204, 0.72);
   --green: #12b869;
   --yellow: #cf8800;
   --red: #e23b3b;
@@ -39,6 +41,7 @@ body,
 body {
   font-family: "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   font-size: 12px;
+  line-height: 1.45;
   color: var(--fg);
   -webkit-user-select: none;
   user-select: none;
@@ -50,12 +53,25 @@ body {
   background: var(--bg);
   border: 0.5px solid var(--hair);
   border-radius: 9px;
-  padding: 5px 7px 6px;
+  padding: 8px 10px 10px;
   height: 100%;
   box-sizing: border-box;
   overflow-y: auto;
+  overflow-x: hidden;
   cursor: grab;
   scrollbar-width: none; /* hide scrollbar */
+}
+
+.board.compact {
+  padding: 6px 10px;
+}
+
+.board.win {
+  background-clip: padding-box;
+  border: 1px solid var(--widget-edge);
+  box-shadow:
+    0 0 0 1px var(--widget-edge),
+    0 14px 34px rgba(0, 0, 0, 0.24);
 }
 
 .board::-webkit-scrollbar,
@@ -76,11 +92,12 @@ body {
   align-items: center;
   justify-content: space-between;
   font-size: 10px;
+  line-height: 1.4;
   font-weight: 600;
   letter-spacing: 2px;
   color: var(--dim2);
-  padding: 0 2px 4px;
-  margin-bottom: 5px;
+  padding: 1px 2px 8px;
+  margin-bottom: 10px;
   border-bottom: 0.5px solid var(--hair);
   cursor: grab;
 }
@@ -144,6 +161,7 @@ body {
 
 .tool-section {
   padding: 6px 4px 6px 12px;
+  box-sizing: border-box;
 }
 
 /* separate tools with a hairline */
@@ -156,14 +174,52 @@ body {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 8px 4px 8px 12px;
+  min-height: 40px;
+  padding: 10px 4px 10px 12px;
+  box-sizing: border-box;
+}
+
+.board.win .tool-section::before,
+.board.win .compact-row::before {
+  left: 3px;
+}
+
+.board.win .tool-section::before {
+  top: 12px;
+  bottom: 12px;
+  min-height: 32px;
+}
+
+.board.win .compact-row::before {
+  top: 50%;
+  bottom: auto;
+  height: 28px;
+  transform: translateY(-50%);
+}
+
+.board.win .tool-section {
+  min-height: 0;
+  padding: 10px 4px 12px 18px;
+}
+
+.board.win .compact-row {
+  min-height: 44px;
+  padding: 10px 4px 10px 18px;
+}
+
+.compact-row .tool-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tool-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 1px 0 3px;
+  padding: 0 0 2px;
 }
 
 .tool-name {
@@ -191,8 +247,8 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 2px 0;
-  line-height: 24px;
+  padding: 1px 0;
+  line-height: 22px;
 }
 
 .task-name {
@@ -375,11 +431,20 @@ body {
   font-size: 12px;
 }
 
+.panel.win {
+  background-clip: padding-box;
+  border: 1px solid var(--widget-edge);
+  box-shadow:
+    0 0 0 1px var(--widget-edge),
+    0 14px 34px rgba(0, 0, 0, 0.24);
+}
+
 .panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 13px 18px;
+  gap: 12px;
+  padding: 12px 14px 12px 18px;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 2px;
@@ -388,13 +453,69 @@ body {
   cursor: grab;
 }
 
+.panel-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .panel-ver {
   letter-spacing: 0;
+}
+
+.panel-close {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(128, 128, 128, 0.18);
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 22px;
+  padding: 0;
+  text-align: center;
+}
+
+.panel-close:hover {
+  background: rgba(128, 128, 128, 0.28);
+  color: var(--fg);
 }
 
 .panel-sec {
   padding: 11px 18px;
   position: relative;
+}
+
+.panel.win .tool-section {
+  min-height: 0;
+  padding: 6px 4px 8px 16px;
+}
+
+.panel.win .tool-section::before {
+  top: 8px;
+  bottom: 8px;
+  min-height: 24px;
+}
+
+.panel.win .tool-header {
+  padding-bottom: 0;
+}
+
+.panel.win .tool-name {
+  font-size: 12px;
+}
+
+.panel.win .task-row {
+  gap: 6px;
+  line-height: 19px;
+  padding: 0;
+}
+
+.panel.win .status-dot {
+  width: 14px;
+  height: 14px;
 }
 
 /* inset the divider so it doesn't touch the panel edges */
@@ -437,26 +558,41 @@ body {
 /* widget empty state: a short hint instead of a blank board */
 .board-empty {
   color: var(--dim);
-  font-size: 12px;
-  padding: 4px 2px 6px;
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 44px;
+  overflow: hidden;
+  padding: 8px 2px 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .panel .row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(4em, max-content) minmax(96px, 1fr) auto;
   align-items: center;
-  gap: 10px;
+  column-gap: 10px;
+  row-gap: 6px;
   padding: 5px 0;
   font-size: 13px;
   color: var(--fg);
 }
 
 .panel .row > span:first-child {
-  flex: 1;
+  min-width: max-content;
+  white-space: nowrap;
 }
 
 .panel .row input[type="range"] {
-  flex: 1;
+  width: 100%;
+  min-width: 96px;
   accent-color: var(--green);
+}
+
+.panel .row > .sw,
+.panel .row > .seg {
+  grid-column: 2 / 4;
+  justify-self: end;
 }
 
 .row-val {

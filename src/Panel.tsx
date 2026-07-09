@@ -10,6 +10,8 @@ const TOOLS: { id: string; name: string }[] = [
   { id: "codex", name: "Codex" },
   { id: "cursor", name: "Cursor" },
 ];
+const IS_WINDOWS = navigator.userAgent.includes("Windows");
+const WINDOW_DIAGNOSTICS = import.meta.env.VITE_WINDOW_DIAGNOSTICS === "1";
 
 function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
   return (
@@ -32,6 +34,26 @@ async function quitApp() {
   void invoke("quit_app");
 }
 
+async function hidePanel() {
+  if (!IN_TAURI) return;
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  try {
+    await getCurrentWindow().hide();
+  } catch (error) {
+    void recordPanelDiag("panel-hide-error", { message: String(error) });
+  }
+}
+
+async function recordPanelDiag(label: string, payload: Record<string, unknown>) {
+  if (!WINDOW_DIAGNOSTICS || !IN_TAURI) return;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("record_window_diag", { label, payload });
+  } catch {
+    // Diagnostics must never affect the panel.
+  }
+}
+
 export default function Panel() {
   const { tools, tasks, network } = useAgentState(false);
   const [cfg, update] = useConfig();
@@ -47,11 +69,46 @@ export default function Panel() {
     );
   }, []);
 
+  useEffect(() => {
+    if (!WINDOW_DIAGNOSTICS || !IN_TAURI) return;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const win = getCurrentWindow();
+        const inner = await win.innerSize().catch(() => undefined);
+        const outer = await win.outerSize().catch(() => undefined);
+        const position = await win.outerPosition().catch(() => undefined);
+        const panel = document.querySelector(".panel")?.getBoundingClientRect();
+        void recordPanelDiag("panel-measure", {
+          inner,
+          outer,
+          position,
+          panel: panel
+            ? { width: panel.width, height: panel.height, top: panel.top, left: panel.left }
+            : undefined,
+        });
+      })();
+    }, 240);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   return (
-    <div className="panel">
-      <header className="panel-head" data-tauri-drag-region onMouseDown={startDrag}>
+    <div className={["panel", IS_WINDOWS ? "win" : ""].filter(Boolean).join(" ")}>
+      <header className="panel-head" onMouseDown={startDrag}>
         <span>AI STATUS</span>
-        <span className="panel-ver">{version && `v${version}`}</span>
+        <span className="panel-head-actions">
+          <span className="panel-ver">{version && `v${version}`}</span>
+          <button
+            type="button"
+            className="panel-close"
+            aria-label="Close"
+            onClick={hidePanel}
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            x
+          </button>
+        </span>
       </header>
 
       <section className="panel-sec">

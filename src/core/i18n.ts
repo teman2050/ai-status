@@ -5,6 +5,7 @@ type Dict = Record<string, { zh: string; en: string }>;
 
 const T: Dict = {
   idle: { zh: "空闲", en: "Idle" },
+  online: { zh: "在线", en: "Online" },
   lost: { zh: "失联，等待恢复", en: "Lost, reconnecting" },
   no_tools: { zh: "还没检测到 AI 工具", en: "No AI tools detected yet" },
   onboard_hint: {

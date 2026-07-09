@@ -8,7 +8,7 @@ import { TaskRow } from "./TaskRow";
 /**
  * A tool section. The tool name is just a group heading with no light — lights live per row:
  * when there are tasks, each task row's own status icon speaks;
- * with no tasks and a healthy network, a single steady green dot = online & idle;
+ * with no tasks and a healthy network, a single steady green dot = online;
  * on network trouble, a ⇄ row (blinking yellow = recovering, red = offline), and no "idle".
  * Each tool is distinguished by its own accent bar.
  */
@@ -70,7 +70,7 @@ export function ToolSection({
         ? network === "ok" && (
             <div className="task-row">
               <span className="status-icon online">●</span>
-              <span className="idle-text">{t("idle")}</span>
+              <span className="idle-text">{t("online")}</span>
             </div>
           )
         : tasks.map((t) => <TaskRow key={t.task_id} task={t} />)}
