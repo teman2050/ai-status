@@ -1,0 +1,552 @@
+:root {
+  --op: 0.95; /* opacity applies to the floating widget only */
+  --bg: rgba(20, 21, 25, var(--op));
+  --panel-bg: rgb(20, 21, 25); /* settings panel is always opaque */
+  --hair: rgba(255, 255, 255, 0.08);
+  --card: rgba(255, 255, 255, 0.035);
+  --card-border: rgba(255, 255, 255, 0.06);
+  --fg: #e8e8ea; /* primary text: tool/task names */
+  --dim: #a2a5ac; /* secondary: summaries */
+  --dim2: #868a92; /* tertiary: time/token/labels */
+  /* vivid colors are reserved for status icons */
+  --green: #22e07a;
+  --yellow: #ffc02e;
+  --red: #ff4d4d;
+}
+
+:root[data-theme="light"] {
+  --bg: rgba(248, 248, 250, var(--op));
+  --panel-bg: rgb(248, 248, 250);
+  --hair: rgba(0, 0, 0, 0.1);
+  --card: rgba(0, 0, 0, 0.028);
+  --card-border: rgba(0, 0, 0, 0.08);
+  --fg: #17181b;
+  --dim: #45484f;
+  --dim2: #63666d;
+  --green: #12b869;
+  --yellow: #cf8800;
+  --red: #e23b3b;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+}
+
+body {
+  font-family: "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 12px;
+  color: var(--fg);
+  -webkit-user-select: none;
+  user-select: none;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+.board {
+  background: var(--bg);
+  border: 0.5px solid var(--hair);
+  border-radius: 9px;
+  padding: 5px 7px 6px;
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  cursor: grab;
+  scrollbar-width: none; /* hide scrollbar */
+}
+
+.board::-webkit-scrollbar,
+.panel::-webkit-scrollbar {
+  display: none;
+}
+
+.board-content {
+  min-height: 0;
+}
+
+.board:active {
+  cursor: grabbing;
+}
+
+.board-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--dim2);
+  padding: 0 2px 4px;
+  margin-bottom: 5px;
+  border-bottom: 0.5px solid var(--hair);
+  cursor: grab;
+}
+
+/* compact small window: only the top bar remains; drop the divider and bottom margin */
+.board-header.compact-bar {
+  padding: 2px;
+  margin-bottom: 0;
+  border-bottom: none;
+}
+
+.bar-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bar-overflow {
+  color: var(--dim);
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.collapse-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: none;
+  border-radius: 7px;
+  color: var(--dim);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  min-width: 28px;
+  height: 20px;
+  line-height: 1;
+  text-align: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.collapse-btn:hover {
+  color: var(--fg);
+  background: rgba(255, 255, 255, 0.11);
+}
+
+/* tools: no inner card, just the brand accent bar + a hairline between tools, avoiding a doubled "outer frame + inner panel" */
+.tool-section,
+.compact-row {
+  position: relative;
+}
+
+.tool-section::before,
+.compact-row::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--accent, #6b6e75);
+}
+
+.tool-section {
+  padding: 6px 4px 6px 12px;
+}
+
+/* separate tools with a hairline */
+.tool-section + .tool-section,
+.compact-row + .compact-row {
+  border-top: 0.5px solid var(--hair);
+}
+
+.compact-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 4px 8px 12px;
+}
+
+.tool-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0 3px;
+}
+
+.tool-name {
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.2px;
+  color: var(--fg);
+}
+
+.idle-text {
+  color: var(--dim);
+}
+
+/* tool-level quota row: text isn't dimmed, shown prominently as an error notice */
+.quota-text {
+  flex: 1 1 auto;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  line-height: 24px;
+}
+
+.task-name {
+  flex: 0 0 auto;
+  max-width: 84px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.task-tokens {
+  flex: 0 0 auto;
+  color: var(--dim2);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.task-time {
+  flex: 0 0 auto;
+  color: var(--dim2);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* marquee: soft fade on the right edge (a functional mask, not a decorative gradient) */
+.marquee {
+  flex: 1 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  display: flex;
+  color: var(--dim);
+  -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent);
+  mask-image: linear-gradient(90deg, #000 88%, transparent);
+}
+
+.marquee-inner {
+  flex: 0 0 auto;
+}
+
+.marquee.scrolling .marquee-inner {
+  animation: marquee 12s linear infinite;
+  padding-right: 32px;
+}
+
+/* status badge: an outlined ring + a line glyph inside, colored by status. running is a gapped green ring that spins. */
+.status-icon {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--dim);
+  background: transparent;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.status-icon.running {
+  border-color: var(--green);
+  border-top-color: transparent; /* gap */
+  color: transparent; /* hide ▶, leave only the spinning ring */
+  animation: spin 1.6s linear infinite;
+}
+
+.status-icon.waiting {
+  border-color: var(--yellow);
+  color: var(--yellow);
+}
+
+.status-icon.error {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.status-icon.done_event {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.status-icon.paused {
+  border-color: var(--yellow); /* transient throttle pause: yellow ring + ‖ */
+  color: var(--yellow);
+}
+
+/* quota exhausted (tool-level): a minimal red clock icon (strokes turn red via currentColor) */
+.quota-icon {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  color: var(--red);
+}
+
+/* compact-mode quota countdown: follows the red clock, red tabular digits */
+.quota-count {
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.status-icon.stale {
+  border-color: var(--yellow); /* stale, awaiting recovery: yellow ring + blinking ⇄ */
+  color: var(--yellow);
+  animation: blink 0.9s step-start infinite;
+}
+
+.status-icon.online {
+  /* online & idle: plain green ring (same size as other statuses) */
+  border-color: var(--green);
+  color: transparent;
+  font-size: 0;
+}
+
+.status-icon.net-flaky {
+  border-color: var(--yellow); /* network flaky / recovering: yellow ring, blinking ⇄ */
+  color: var(--yellow);
+  animation: blink 0.9s step-start infinite;
+}
+
+.status-icon.net-down {
+  border-color: var(--red); /* confirmed offline: red ring ⇄ */
+  color: var(--red);
+}
+
+.compact-icons {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+@keyframes blink {
+  50% { opacity: 0.15; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+
+/* ===== menu-bar panel ===== */
+.panel {
+  background: var(--panel-bg); /* panel is opaque, unaffected by the widget's opacity */
+  border: 0.5px solid var(--hair);
+  border-radius: 14px;
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  scrollbar-width: none;
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 18px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--dim2);
+  border-bottom: 0.5px solid var(--hair);
+  cursor: grab;
+}
+
+.panel-ver {
+  letter-spacing: 0;
+}
+
+.panel-sec {
+  padding: 11px 18px;
+  position: relative;
+}
+
+/* inset the divider so it doesn't touch the panel edges */
+.panel-sec::after {
+  content: "";
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 0;
+  border-bottom: 0.5px solid var(--hair);
+}
+
+.panel-label {
+  font-size: 11px;
+  color: var(--dim);
+  margin-bottom: 6px;
+}
+
+.panel-empty {
+  color: var(--dim);
+  font-size: 12px;
+  padding: 2px 0 4px;
+}
+
+/* onboarding when no tools are detected */
+.panel-onboard {
+  padding: 2px 0 4px;
+}
+.panel-onboard-title {
+  color: var(--fg);
+  font-size: 13px;
+  margin-bottom: 5px;
+}
+.panel-onboard-hint {
+  color: var(--dim);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+/* widget empty state: a short hint instead of a blank board */
+.board-empty {
+  color: var(--dim);
+  font-size: 12px;
+  padding: 4px 2px 6px;
+}
+
+.panel .row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+  font-size: 13px;
+  color: var(--fg);
+}
+
+.panel .row > span:first-child {
+  flex: 1;
+}
+
+.panel .row input[type="range"] {
+  flex: 1;
+  accent-color: var(--green);
+}
+
+.row-val {
+  color: var(--dim);
+  font-size: 12px;
+  min-width: 34px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* toggle switch */
+.sw {
+  width: 34px;
+  height: 20px;
+  border-radius: 20px;
+  border: none;
+  background: rgba(128, 128, 128, 0.35);
+  position: relative;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s ease;
+  flex: 0 0 auto;
+}
+
+.sw.on {
+  background: var(--green);
+}
+
+.sw-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease;
+}
+
+.sw.on .sw-knob {
+  transform: translateX(14px);
+}
+
+/* segmented control */
+.seg {
+  display: inline-flex;
+  border: 0.5px solid var(--hair);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.seg button {
+  border: none;
+  background: transparent;
+  color: var(--dim);
+  font-size: 12px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.seg button + button {
+  border-left: 0.5px solid var(--hair);
+}
+
+.seg button.on {
+  background: rgba(128, 128, 128, 0.22);
+  color: var(--fg);
+}
+
+/* tool chips */
+.chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  border: 0.5px solid var(--hair);
+  background: transparent;
+  color: var(--dim);
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+}
+
+.chip.on {
+  border-color: transparent;
+  background: rgba(34, 224, 122, 0.16);
+  color: var(--green);
+}
+
+.panel-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 18px;
+}
+
+.panel-note {
+  color: var(--dim2);
+  font-size: 11px;
+}
+
+.panel-quit {
+  border: none;
+  background: transparent;
+  color: var(--red);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+}

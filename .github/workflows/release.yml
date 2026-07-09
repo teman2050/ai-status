@@ -1,0 +1,71 @@
+name: release
+
+# Build installers on each platform's native runner and publish them to the tag's Release
+# (Windows packages can only be produced on a Windows runner).
+# Two triggers:
+#  1) Manual (Actions -> release -> Run workflow): pass an existing tag (e.g. v1.0.0); artifacts are attached to that Release.
+#  2) Pushing a v* tag: automatically builds for that tag and creates a (draft) Release.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing version tag (e.g. v1.0.0); artifacts are attached to that Release"
+        required: true
+        default: v1.0.0
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-tauri:
+    permissions:
+      contents: write # allow creating the Release and uploading artifacts
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS: universal binary (Intel + Apple Silicon) -> a single .dmg
+          - platform: macos-latest
+            args: "--target universal-apple-darwin"
+            rustTargets: "aarch64-apple-darwin,x86_64-apple-darwin"
+          # Windows x64: .msi (WiX) + setup.exe (NSIS)
+          - platform: windows-latest
+            args: ""
+            rustTargets: ""
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rustTargets }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build app and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: "AI STATUS ${{ inputs.tag || github.ref_name }}"
+          releaseBody: |
+            Download the installer for your platform:
+            - macOS: `.dmg` (unsigned; on first open use "Right-click -> Open" to bypass Gatekeeper)
+            - Windows: `.msi` or `-setup.exe` (unsigned; if SmartScreen warns, click "More info -> Run anyway")
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
