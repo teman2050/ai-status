@@ -5,7 +5,7 @@
 .board.win {
   background-clip: padding-box;
   border: 1px solid var(--widget-edge);
-  padding: 3px 4px 3px;
+  padding: 3px 4px 0;
   font-size: 8px;
   box-shadow:
     0 0 0 1px var(--widget-edge),
@@ -13,7 +13,7 @@
 }
 
 .board.win.compact {
-  padding: 2px 4px;
+  padding: 2px 4px 0;
 }
 
 .board.win .board-header {
@@ -44,12 +44,12 @@
 
 .board.win .tool-section {
   min-height: 0;
-  padding: 3px 0 3px 8px;
+  padding: 3px 8px;
 }
 
 .board.win .compact-row {
   min-height: 20px;
-  padding: 3px 0 3px 8px;
+  padding: 3px 8px;
   gap: 4px;
 }
 
