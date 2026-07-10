@@ -34,6 +34,8 @@ const T: Dict = {
   net_flaky: { zh: "网络抖动", en: "Unstable" },
   q_5h: { zh: "5h配额", en: "5h quota" },
   q_weekly: { zh: "周配额", en: "Weekly quota" },
+  q_5h_s: { zh: "5h", en: "5h" },
+  q_weekly_s: { zh: "周", en: "wk" },
   q_generic: { zh: "配额", en: "Quota" },
   q_reached: { zh: "用完", en: "reached" },
   q_left: { zh: "还剩", en: "resets in" },

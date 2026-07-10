@@ -47,6 +47,67 @@ fn parse_reset_time(line: &str) -> Option<String> {
     }
 }
 
+/// Parse a clock reset token ("9:30pm" / "3pm" / "15:40") into (hour, minute);
+/// None for weekday-style texts ("next Monday 9am") the countdown can't anchor.
+fn parse_reset_clock(reset: &str) -> Option<(u32, u32)> {
+    let s = reset.trim().to_lowercase();
+    let (num, ap) = if let Some(p) = s.strip_suffix("pm") {
+        (p.trim_end(), Some("pm"))
+    } else if let Some(p) = s.strip_suffix("am") {
+        (p.trim_end(), Some("am"))
+    } else {
+        (s.as_str(), None)
+    };
+    let (h_str, m_str) = match num.split_once(':') {
+        Some((h, m)) => (h, Some(m)),
+        None => (num, None),
+    };
+    let mut hour: u32 = h_str.parse().ok()?;
+    let min: u32 = match m_str {
+        Some(m) => m.parse().ok()?,
+        None => 0,
+    };
+    if hour > 23 || min > 59 {
+        return None;
+    }
+    match ap {
+        Some("pm") if hour < 12 => hour += 12,
+        Some("am") if hour == 12 => hour = 0,
+        _ => {}
+    }
+    Some((hour, min))
+}
+
+/// The stated reset moment: the next occurrence of the wall-clock time strictly after `anchor`.
+/// The anchor decides the day (today vs tomorrow) once, so the target never rolls over later.
+fn reset_target_after(anchor: SystemTime, reset: &str) -> Option<SystemTime> {
+    use chrono::{DateTime, Duration as CDuration, Local};
+    let (h, m) = parse_reset_clock(reset)?;
+    let anchor_local: DateTime<Local> = DateTime::from(anchor);
+    let mut naive = anchor_local.date_naive().and_hms_opt(h, m, 0)?;
+    let mut target = naive.and_local_timezone(Local).earliest()?;
+    if target <= anchor_local {
+        naive += CDuration::days(1);
+        target = naive.and_local_timezone(Local).earliest()?;
+    }
+    Some(target.into())
+}
+
+/// A quota block is over once its stated reset moment has passed. The block freezes the
+/// transcript (hooks stop firing, nothing new is written), so the file mtime is when the limit
+/// line was reported — that's the anchor for resolving "9:30pm" to an absolute moment.
+/// Without this, the frozen tail keeps re-flagging the pause and the countdown rolls into tomorrow.
+fn quota_reset_passed(path: &str, reset: &str) -> bool {
+    const GRACE: Duration = Duration::from_secs(60); // absorb provider/client clock skew
+    let Ok(mtime) = fs::metadata(path).and_then(|m| m.modified()) else {
+        return false;
+    };
+    let Some(target) = reset_target_after(mtime, reset) else {
+        return false; // unparseable (weekly texts): keep the pause, PAUSED_REMOVE_TTL reclaims it
+    };
+    SystemTime::now() >= target + GRACE
+}
+
 /// The kind of block currently imposed by the API (judged from the transcript tail).
 #[derive(Debug, PartialEq)]
 enum Blocked {
@@ -369,7 +430,8 @@ impl Store {
         if do_limit_scan {
             self.last_limit_scan = now;
         }
-        for t in self.tasks.values_mut() {
+        let mut reset_passed: Vec<String> = Vec::new();
+        for (id, t) in self.tasks.iter_mut() {
             if t.done_at.is_some() {
                 continue;
             }
@@ -387,10 +449,21 @@ impl Store {
                 // status semantics + quota_reset ("kind|reset", for the frontend to compute the countdown / absolute reset time), no hardcoded summary.
                 match (t.visible_status.as_str(), &blocked) {
                     ("running" | "waiting" | "paused", Blocked::Quota { kind, reset }) => {
-                        let hint = format!("{kind}|{}", reset.clone().unwrap_or_default());
-                        t.visible_status = "paused".to_string();
-                        t.summary = String::new();
-                        t.quota_reset = Some(hint);
+                        let reset_txt = reset.clone().unwrap_or_default();
+                        if quota_reset_passed(&path, &reset_txt) {
+                            // the stated reset moment passed while the tail stayed frozen: the block
+                            // is over and the session is simply idle — reclaim a paused row rather
+                            // than letting the countdown run past its own reset; never (re)pause
+                            // from an expired limit message.
+                            if t.visible_status == "paused" {
+                                reset_passed.push(id.clone());
+                            }
+                        } else {
+                            let hint = format!("{kind}|{reset_txt}");
+                            t.visible_status = "paused".to_string();
+                            t.summary = String::new();
+                            t.quota_reset = Some(hint);
+                        }
                     }
                     ("running" | "waiting" | "paused", Blocked::Throttled) => {
                         t.visible_status = "paused".to_string();
@@ -406,6 +479,9 @@ impl Store {
                     _ => {}
                 }
             }
+        }
+        for id in reset_passed {
+            self.tasks.remove(&id);
         }
     }
 
@@ -521,6 +597,60 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_reset_clock_formats() {
+        assert_eq!(parse_reset_clock("9:30pm"), Some((21, 30)));
+        assert_eq!(parse_reset_clock("3pm"), Some((15, 0)));
+        assert_eq!(parse_reset_clock("15:40"), Some((15, 40)));
+        assert_eq!(parse_reset_clock("12am"), Some((0, 0)));
+        assert_eq!(parse_reset_clock("12pm"), Some((12, 0)));
+        assert_eq!(parse_reset_clock("next Monday 9am"), None, "weekday text can't anchor");
+        assert_eq!(parse_reset_clock(""), None);
+        assert_eq!(parse_reset_clock("25:00"), None);
+    }
+
+    #[test]
+    fn reset_target_anchored_at_detection_never_rolls_over() {
+        use chrono::{DateTime, Local, TimeZone};
+        let anchor: SystemTime = Local.with_ymd_and_hms(2026, 7, 8, 14, 0, 0).unwrap().into();
+        // stated 2:50pm, seen at 14:00 -> today 14:50, even when checked long after
+        let target: DateTime<Local> =
+            DateTime::from(reset_target_after(anchor, "2:50pm").unwrap());
+        assert_eq!(target, Local.with_ymd_and_hms(2026, 7, 8, 14, 50, 0).unwrap());
+        // stated 2:50pm, seen at 15:00 -> already passed at detection = tomorrow
+        let late: SystemTime = Local.with_ymd_and_hms(2026, 7, 8, 15, 0, 0).unwrap().into();
+        let target: DateTime<Local> = DateTime::from(reset_target_after(late, "2:50pm").unwrap());
+        assert_eq!(target, Local.with_ymd_and_hms(2026, 7, 9, 14, 50, 0).unwrap());
+        // stated 1:30am, seen at 23:00 -> crosses midnight into tomorrow
+        let night: SystemTime = Local.with_ymd_and_hms(2026, 7, 8, 23, 0, 0).unwrap().into();
+        let target: DateTime<Local> = DateTime::from(reset_target_after(night, "1:30am").unwrap());
+        assert_eq!(target, Local.with_ymd_and_hms(2026, 7, 9, 1, 30, 0).unwrap());
+    }
+
+    #[test]
+    fn quota_reset_passed_uses_transcript_mtime_as_anchor() {
+        use chrono::{DateTime, Local};
+        let dir = std::env::temp_dir().join(format!("asb-quota-test-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("transcript.jsonl");
+        fs::write(&path, "x").unwrap();
+
+        // fresh file (mtime = now): any stated clock is in the future -> still blocked
+        assert!(!quota_reset_passed(path.to_str().unwrap(), "9:30pm"));
+        // unparseable weekly text -> never auto-expired (PAUSED_REMOVE_TTL reclaims instead)
+        assert!(!quota_reset_passed(path.to_str().unwrap(), "next Monday 9am"));
+
+        // limit reported 6h ago stating a reset 5h ago -> expired
+        let anchor = SystemTime::now() - Duration::from_secs(6 * 3600);
+        let f = fs::OpenOptions::new().write(true).open(&path).unwrap();
+        f.set_times(fs::FileTimes::new().set_modified(anchor)).unwrap();
+        let stated: DateTime<Local> = DateTime::from(anchor + Duration::from_secs(3600));
+        let reset = stated.format("%H:%M").to_string();
+        assert!(quota_reset_passed(path.to_str().unwrap(), &reset));
+
+        fs::remove_dir_all(&dir).ok();
+    }
 
     fn ev(event_type: &str, task_id: Option<&str>) -> IncomingEvent {
         IncomingEvent {

@@ -3,6 +3,8 @@ import {
   formatElapsed,
   formatTokens,
   pruneDoneTasks,
+  formatQuotaChip,
+  formatQuotaRow,
   quotaWarnings,
   toolBadge,
   DONE_TTL_MS,
@@ -96,16 +98,62 @@ describe("quotaWarnings", () => {
     expect(quotaWarnings(usage({ week_used: 79 }), NOW)).toHaveLength(0); // 21% left
     const w = quotaWarnings(usage({ week_used: 90 }), NOW); // 10% left
     expect(w).toHaveLength(1);
-    expect(w[0]).toContain("10%");
-    expect(w[0]).toContain("Weekly");
+    expect(w[0].pct).toBe(10);
+    expect(w[0].window).toBe("weekly");
+    expect(w[0].when).not.toBe(""); // reset moment resolved from the epoch
   });
 
-  it("reports both windows when both are low", () => {
-    expect(quotaWarnings(usage({ h5_used: 85, week_used: 92 }), NOW)).toHaveLength(2);
+  it("reports both windows when both are low, 5h first", () => {
+    const w = quotaWarnings(usage({ h5_used: 85, week_used: 92 }), NOW);
+    expect(w.map((x) => x.window)).toEqual(["5h", "weekly"]);
+  });
+
+  it("drops the 5h entry when the weekly window is exhausted", () => {
+    const w = quotaWarnings(usage({ h5_used: 85, week_used: 100 }), NOW);
+    expect(w).toHaveLength(1);
+    expect(w[0].window).toBe("weekly");
+    expect(w[0].pct).toBe(0);
   });
 
   it("ignores a window that has already reset", () => {
     const past = Math.floor(NOW / 1000) - 10;
     expect(quotaWarnings(usage({ week_used: 95, week_reset: past }), NOW)).toHaveLength(0);
+  });
+});
+
+describe("formatQuotaRow", () => {
+  beforeAll(() => setLang("en"));
+  const afternoon = new Date(2026, 6, 8, 14, 0, 0, 0).getTime(); // local 14:00
+
+  it("counts down to an upcoming reset", () => {
+    const s = formatQuotaRow("session|2:50pm", afternoon);
+    expect(s).toContain("50m");
+    expect(s).toContain("14:50");
+  });
+
+  it("freezes at 0m once the stated reset passed (no rollover into tomorrow)", () => {
+    const past = new Date(2026, 6, 8, 15, 0, 0, 0).getTime(); // 15:00 — 14:50 already passed
+    const s = formatQuotaRow("session|2:50pm", past);
+    expect(s).toContain(" 0m");
+    expect(s).not.toContain("23h");
+  });
+
+  it("still counts down across midnight", () => {
+    const night = new Date(2026, 6, 8, 23, 0, 0, 0).getTime();
+    const s = formatQuotaRow("session|1:30am", night);
+    expect(s).toContain("2h30m");
+  });
+});
+
+describe("formatQuotaChip", () => {
+  beforeAll(() => setLang("en"));
+
+  it("renders compact label, percent, and reset", () => {
+    expect(formatQuotaChip({ window: "5h", pct: 6, when: "16:05" })).toBe("5h 6%·16:05");
+    expect(formatQuotaChip({ window: "weekly", pct: 3, when: "Jul 2" })).toBe("wk 3%·Jul 2");
+  });
+
+  it("omits the reset when unknown", () => {
+    expect(formatQuotaChip({ window: "5h", pct: 0, when: "" })).toBe("5h 0%");
   });
 });

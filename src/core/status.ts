@@ -88,8 +88,18 @@ export function collapsedBadges(
   return badges;
 }
 
-/** Parse "9:30pm" / "3pm" / "15:40" into the next local timestamp it occurs; null if unparseable (e.g. a weekday) */
-function parseResetToMs(reset: string, now: number): number | null {
+/**
+ * Parse "9:30pm" / "3pm" / "15:40" into the next local timestamp it occurs; null if unparseable
+ * (e.g. a weekday). These clock hints come from 5h-window limits, so a genuine upcoming reset is
+ * never more than ~5h away: when taking "the next occurrence" pushes the target further out than
+ * that, the stated moment actually just PASSED (`passed: true`) — the countdown must freeze at 0
+ * instead of silently rolling into tomorrow. (The backend releases the pause shortly after; this
+ * guard covers the scan interval in between.)
+ */
+function parseResetToMs(
+  reset: string,
+  now: number,
+): { target: number; passed: boolean } | null {
   const m = reset.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
   if (!m) return null;
   let hour = parseInt(m[1], 10);
@@ -100,8 +110,12 @@ function parseResetToMs(reset: string, now: number): number | null {
   const d = new Date(now);
   d.setHours(hour, min, 0, 0);
   let target = d.getTime();
-  if (target <= now) target += 24 * 3600_000; // already passed -> take the next occurrence
-  return target;
+  let passed = false;
+  if (target <= now) {
+    target += 24 * 3600_000; // next occurrence: either across midnight, or already behind us
+    passed = target - now > 6 * 3600_000; // beyond a 5h window's reach -> it passed
+  }
+  return { target, passed };
 }
 
 /**
@@ -115,13 +129,13 @@ export function formatQuotaRow(hint: string, now: number = Date.now()): string {
   const label =
     kind === "weekly" ? t("q_weekly") : kind === "session" ? t("q_5h") : t("q_generic");
   if (!reset) return `${label} ${t("q_reached")}`; // no reset info
-  const target = parseResetToMs(reset, now);
-  if (target === null) return `${label} · ${reset}`; // weekday etc. can't count down -> show as-is
-  const totalMin = Math.max(0, Math.floor((target - now) / 60000));
+  const res = parseResetToMs(reset, now);
+  if (res === null) return `${label} · ${reset}`; // weekday etc. can't count down -> show as-is
+  const totalMin = res.passed ? 0 : Math.max(0, Math.floor((res.target - now) / 60000));
   const h = Math.floor(totalMin / 60);
   const mm = totalMin % 60;
   const cd = h > 0 ? `${h}h${mm}m` : `${mm}m`;
-  const clock = new Date(target).toLocaleTimeString([], {
+  const clock = new Date(res.target).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
@@ -133,13 +147,13 @@ export function formatQuotaRow(hint: string, now: number = Date.now()): string {
 export function formatQuotaShort(hint: string, now: number = Date.now()): string {
   const [, reset] = hint.split("|");
   if (!reset) return t("q_reached");
-  const target = parseResetToMs(reset, now);
-  if (target === null) return reset; // weekday etc. can't count down -> show as-is
-  const totalMin = Math.max(0, Math.floor((target - now) / 60000));
+  const res = parseResetToMs(reset, now);
+  if (res === null) return reset; // weekday etc. can't count down -> show as-is
+  const totalMin = res.passed ? 0 : Math.max(0, Math.floor((res.target - now) / 60000));
   const h = Math.floor(totalMin / 60);
   const mm = totalMin % 60;
   const cd = h > 0 ? `${h}h${mm}m` : `${mm}m`;
-  const clock = new Date(target).toLocaleTimeString([], {
+  const clock = new Date(res.target).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
@@ -147,30 +161,37 @@ export function formatQuotaShort(hint: string, now: number = Date.now()): string
   return `${cd} · ${clock}`;
 }
 
+export interface QuotaWarning {
+  window: "5h" | "weekly";
+  pct: number; // remaining percent (0-20)
+  when: string; // formatted reset moment ("16:05" / "Jul 2"), "" when unknown
+}
+
 /**
- * Approaching-limit warnings from live rate-limit usage (Codex): one line per window
+ * Approaching-limit warnings from live rate-limit usage (Codex): one entry per window
  * (5h / weekly) that has <=20% remaining and hasn't reset yet. Empty when nothing is low.
- * The percent shown is what's LEFT (100 - used); the reset is the window's rollover.
+ * The percent is what's LEFT (100 - used); the reset is the window's rollover.
+ * When the weekly window is exhausted (0% left), the 5h entry is dropped — a fresh
+ * 5h window is useless while the whole week is spent.
  */
 export function quotaWarnings(
   usage: QuotaUsage,
   now: number = Date.now(),
-): string[] {
-  const out: string[] = [];
-  const add = (
+): QuotaWarning[] {
+  const make = (
     used: number,
     resetEpoch: number,
-    label: string,
+    window: "5h" | "weekly",
     kind: "clock" | "date",
-  ) => {
+  ): QuotaWarning | null => {
     const remaining = 100 - used;
-    if (remaining > 20) return; // warn only when <=20% left
+    if (remaining > 20) return null; // warn only when <=20% left
     const resetMs = resetEpoch * 1000;
-    if (resetEpoch > 0 && resetMs <= now) return; // window already reset -> not low anymore
+    if (resetEpoch > 0 && resetMs <= now) return null; // window already reset -> not low anymore
     const pct = Math.max(0, Math.round(remaining));
-    let line = `${label} · ${t("q_remaining")} ${pct}%`;
+    let when = "";
     if (resetEpoch > 0) {
-      const when =
+      when =
         kind === "clock"
           ? new Date(resetMs).toLocaleTimeString([], {
               hour: "2-digit",
@@ -181,13 +202,22 @@ export function quotaWarnings(
               month: "short",
               day: "numeric",
             });
-      line += ` · ${when}`;
     }
-    out.push(line);
+    return { window, pct, when };
   };
-  add(usage.h5_used, usage.h5_reset, t("q_5h"), "clock");
-  add(usage.week_used, usage.week_reset, t("q_weekly"), "date");
-  return out;
+  const h5 = make(usage.h5_used, usage.h5_reset, "5h", "clock");
+  const week = make(usage.week_used, usage.week_reset, "weekly", "date");
+  if (week && week.pct <= 0) return [week];
+  return [h5, week].filter((w): w is QuotaWarning => w !== null);
+}
+
+/**
+ * Compact chip text for a quota warning shown inside the tool header ("5h 6%·16:05"):
+ * short labels because the chip shares the line with the tool name and must not crowd it out.
+ */
+export function formatQuotaChip(w: QuotaWarning): string {
+  const label = w.window === "5h" ? t("q_5h_s") : t("q_weekly_s");
+  return w.when ? `${label} ${w.pct}%·${w.when}` : `${label} ${w.pct}%`;
 }
 
 export function formatTokens(total?: number | null): string {
