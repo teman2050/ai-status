@@ -106,10 +106,14 @@ def build_event(data: dict):
         return {**base, "event_type": "task_started", "message": ""}
     if hook == "SessionEnd":
         return {**base, "event_type": "tool_disconnected"}
-    if hook == "PostToolUseFailure":
+    if hook in ("PostToolUseFailure", "StopFailure"):
         # send only the tool name (language-neutral); empty -> frontend shows "Failed"
         tool = data.get("tool_name") or ""
         return {**base, "event_type": "task_error", "message": tool}
+    if hook in ("PermissionRequest", "Elicitation"):
+        return {**base, "event_type": "task_waiting", "message": data.get("tool_name") or ""}
+    if hook == "PermissionDenied":
+        return {**base, "event_type": "task_error", "message": data.get("tool_name") or ""}
     if hook == "Notification":
         note = (data.get("message") or "")[:MSG_LIMIT]
         if any(h in note.lower() for h in LIMIT_HINT) or "配额" in note:
@@ -117,8 +121,8 @@ def build_event(data: dict):
             return {**base, "event_type": "task_update", "status": "paused", "message": ""}
         return {**base, "event_type": "task_waiting", "message": note}
 
-    # PostToolUse / Stop: read the transcript to determine tokens and errors
-    if hook in ("PostToolUse", "Stop"):
+    # PreToolUse / PostToolUse / Stop: read the transcript to determine tokens and errors
+    if hook in ("PreToolUse", "PostToolUse", "Stop"):
         st = transcript_stats(transcript)
         event = dict(base)
         if st["tokens"] is not None:
@@ -127,7 +131,7 @@ def build_event(data: dict):
             # quota row text and countdown are localized on the frontend
             # (the backend transcript scan fills quota_reset)
             return {**event, "event_type": "task_update", "status": "paused", "message": ""}
-        if hook == "PostToolUse":
+        if hook in ("PreToolUse", "PostToolUse"):
             event["event_type"] = "task_update"
             event["status"] = "running"
             # still running while throttled: text localized on frontend; otherwise send the tool name

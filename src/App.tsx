@@ -14,7 +14,9 @@ const WINDOW_DIAGNOSTICS = import.meta.env.VITE_WINDOW_DIAGNOSTICS === "1";
 const DIAG_TOGGLE_COMPACT = import.meta.env.VITE_DIAG_TOGGLE_COMPACT === "1";
 const IN_TAURI = "__TAURI_INTERNALS__" in window;
 const IS_WINDOWS = navigator.userAgent.includes("Windows");
-const WIN_WIDTH = 360;
+const WINDOWS_WIDGET_WIDTH = 300;
+const LEGACY_WIDGET_WIDTH = 360;
+const WIDGET_WIDTH = IS_WINDOWS ? WINDOWS_WIDGET_WIDTH : LEGACY_WIDGET_WIDTH;
 const MIN_WIDGET_HEIGHT = 56;
 const LEGACY_MAX_HEIGHT = 520;
 const LEGACY_MIN_COMPACT_HEIGHT = 56;
@@ -24,7 +26,7 @@ const LEGACY_HEIGHT_SAFETY = 24;
 const SCREEN_MARGIN = 24;
 const HEIGHT_TOLERANCE = 2;
 const FIT_RETRY_DELAYS = [0, 80, 240];
-const CONTENT_HEIGHT_SAFETY = 8;
+const CONTENT_HEIGHT_SAFETY = 3;
 const RESIZE_DEBOUNCE_MS = 50;
 
 const DRAG_THRESHOLD_SQ = 25; // moving > 5px (25 squared) counts as a drag, otherwise a click
@@ -166,14 +168,14 @@ export default function App() {
         Math.max(minHeight, measurement.targetBase + LEGACY_HEIGHT_SAFETY),
       );
       if (
-        lastAppliedSize.current.width === WIN_WIDTH &&
+        lastAppliedSize.current.width === WIDGET_WIDTH &&
         Math.abs(lastAppliedSize.current.height - target) <= HEIGHT_TOLERANCE
       ) {
         return;
       }
-      lastAppliedSize.current = { width: WIN_WIDTH, height: target };
+      lastAppliedSize.current = { width: WIDGET_WIDTH, height: target };
       try {
-        await win.setSize(new LogicalSize(WIN_WIDTH, target));
+        await win.setSize(new LogicalSize(WIDGET_WIDTH, target));
       } catch {
         lastAppliedSize.current = { width: 0, height: 0 };
         // Ignore window resize failures; the next layout tick will retry.
@@ -208,7 +210,7 @@ export default function App() {
     const beforeInner = await win.innerSize().catch(() => undefined);
     const beforeOuter = await win.outerSize().catch(() => undefined);
     if (
-      lastAppliedSize.current.width === WIN_WIDTH &&
+      lastAppliedSize.current.width === WIDGET_WIDTH &&
       Math.abs(lastAppliedSize.current.height - target) <= HEIGHT_TOLERANCE
     ) {
       void recordWindowDiag("main-fit-skip", {
@@ -226,9 +228,9 @@ export default function App() {
       });
       return;
     }
-    lastAppliedSize.current = { width: WIN_WIDTH, height: target };
+    lastAppliedSize.current = { width: WIDGET_WIDTH, height: target };
     try {
-      await win.setSize(new LogicalSize(WIN_WIDTH, target));
+      await win.setSize(new LogicalSize(WIDGET_WIDTH, target));
       window.setTimeout(() => {
         void (async () => {
           const afterInner = await win.innerSize().catch(() => undefined);

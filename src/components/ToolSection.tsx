@@ -33,10 +33,10 @@ export function ToolSection({
       <section className="tool-section" style={style}>
         <div className="tool-header">
           <span className="tool-name">{tool.tool_name}</span>
-        </div>
-        <div className="task-row">
-          <QuotaIcon />
-          <span className="quota-text">{formatQuotaRow(tool.quota)}</span>
+          <span className="tool-quota-blocked">
+            <QuotaIcon />
+            <span>{formatQuotaRow(tool.quota)}</span>
+          </span>
         </div>
         {network !== "ok" && (
           <div className="task-row">
@@ -51,15 +51,17 @@ export function ToolSection({
     <section className="tool-section" style={style}>
       <div className="tool-header">
         <span className="tool-name">{tool.tool_name}</span>
-      </div>
-      {warnings.map((w, i) => (
-        <div className="task-row quota-warn" key={`qw-${i}`}>
-          <span className="status-icon quota-warn-icon" title={t("q_low_title")}>
-            ⚠
+        {warnings.length > 0 && (
+          <span className="tool-quota-warnings" title={warnings.map((w) => w.text).join(" / ")}>
+            {warnings.map((w, i) => (
+              <span className="tool-quota-warning" key={w.key}>
+                {i > 0 && <span className="tool-quota-sep">/</span>}
+                {w.text}
+              </span>
+            ))}
           </span>
-          <span className="quota-warn-text">{w}</span>
-        </div>
-      ))}
+        )}
+      </div>
       {network !== "ok" && (
         <div className="task-row">
           <span className={`status-icon ${network === "down" ? "net-down" : "net-flaky"}`}>⇄</span>

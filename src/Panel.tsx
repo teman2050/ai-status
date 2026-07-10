@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 import { ToolSection } from "./components/ToolSection";
 import { IN_TAURI, useConfig } from "./core/config";
 import { t } from "./core/i18n";
@@ -12,6 +13,8 @@ const TOOLS: { id: string; name: string }[] = [
 ];
 const IS_WINDOWS = navigator.userAgent.includes("Windows");
 const WINDOW_DIAGNOSTICS = import.meta.env.VITE_WINDOW_DIAGNOSTICS === "1";
+const WINDOWS_PANEL_WIDTH = 300;
+const WINDOWS_PANEL_HEIGHT = 480;
 
 function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
   return (
@@ -23,6 +26,8 @@ function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
 
 function startDrag(e: ReactMouseEvent) {
   if (e.button !== 0 || !IN_TAURI) return;
+  const target = e.target as HTMLElement | null;
+  if (target?.closest("button, input")) return;
   import("@tauri-apps/api/window").then(({ getCurrentWindow }) =>
     getCurrentWindow().startDragging(),
   );
@@ -36,9 +41,11 @@ async function quitApp() {
 
 async function hidePanel() {
   if (!IN_TAURI) return;
+  void recordPanelDiag("panel-close-request", {});
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   try {
     await getCurrentWindow().hide();
+    void recordPanelDiag("panel-hidden", {});
   } catch (error) {
     void recordPanelDiag("panel-hide-error", { message: String(error) });
   }
@@ -70,7 +77,30 @@ export default function Panel() {
   }, []);
 
   useEffect(() => {
+    if (!IN_TAURI || !IS_WINDOWS) return;
+    void import("@tauri-apps/api/window").then(({ getCurrentWindow }) =>
+      getCurrentWindow()
+        .setSize(new LogicalSize(WINDOWS_PANEL_WIDTH, WINDOWS_PANEL_HEIGHT))
+        .catch((error) => {
+          void recordPanelDiag("panel-size-error", { message: String(error) });
+        }),
+    );
+  }, []);
+
+  useEffect(() => {
     if (!WINDOW_DIAGNOSTICS || !IN_TAURI) return;
+    const pointer = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      void recordPanelDiag("panel-pointer", {
+        type: event.type,
+        x: event.clientX,
+        y: event.clientY,
+        tag: target?.tagName,
+        className: typeof target?.className === "string" ? target.className : "",
+      });
+    };
+    document.addEventListener("pointerdown", pointer, true);
+    document.addEventListener("pointerup", pointer, true);
     const timer = window.setTimeout(() => {
       void (async () => {
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -89,22 +119,39 @@ export default function Panel() {
         });
       })();
     }, 240);
-    return () => window.clearTimeout(timer);
+    return () => {
+      document.removeEventListener("pointerdown", pointer, true);
+      document.removeEventListener("pointerup", pointer, true);
+      window.clearTimeout(timer);
+    };
   }, []);
 
   return (
     <div className={["panel", IS_WINDOWS ? "win" : ""].filter(Boolean).join(" ")}>
-      <header className="panel-head" onMouseDown={startDrag}>
-        <span>AI STATUS</span>
+      <header className="panel-head">
+        <span className="panel-drag" onMouseDown={startDrag}>AI STATUS</span>
         <span className="panel-head-actions">
           <span className="panel-ver">{version && `v${version}`}</span>
           <button
             type="button"
             className="panel-close"
             aria-label="Close"
-            onClick={hidePanel}
-            onPointerDown={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              void hidePanel();
+            }}
+            onPointerUp={(e) => {
+              e.stopPropagation();
+              void hidePanel();
+            }}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              void hidePanel();
+            }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              void hidePanel();
+            }}
           >
             x
           </button>

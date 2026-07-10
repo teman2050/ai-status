@@ -45,14 +45,18 @@ Configure the hooks in `~/.claude/settings.json` to call `asb_hook.py`:
 |---|---|
 | SessionStart | tool_connected (with session_id) |
 | UserPromptSubmit | task_started (running) |
+| PreToolUse | task_update (running, message = tool name) |
 | PostToolUse | task_update (running, message = tool name); scans the transcript to detect quota |
 | PostToolUseFailure | task_error |
-| Notification | task_waiting (paused if it contains "limit") |
+| PermissionRequest / Elicitation | task_waiting |
+| PermissionDenied / StopFailure | task_error |
+| Notification | task_waiting (paused if it contains "limit"; kept for older Claude hook payloads) |
 | Stop | task_done (paused if it contains quota) |
 | SessionEnd | tool_disconnected (with session_id) |
 
 - **Heartbeat**: task events carry `transcript_path`; the server stats its mtime every second — a file modified recently = the session is alive (thinking/streaming), so it isn't misjudged as lost.
 - **Quota**: scan the transcript tail for `isApiErrorMessage` containing "session/usage limit" (excluding transient throttles like 429/overloaded/rate limit), and parse "resets 9:30pm" for the reset time; **bidirectional**: once the limit clears and the session is active, paused -> running.
+- **No-hook fallback**: `claude.rs` scans recent local transcripts under `~/.claude/projects` for active usage-limit blocks. This covers Claude Code installs where another hook manager is present but AI STATUS is not registered.
 - **Multiple sessions**: the server counts sessions and only hides the section on the last SessionEnd.
 
 ### 3.2 Cursor — hooks (~85%)
@@ -71,9 +75,9 @@ Configure `~/.cursor/hooks.json` (schema version 1) to call `asb_cursor_hook.py`
 ### 3.3 Codex — rollout logs + notify (~85%)
 Codex (desktop app process name `Codex`, CLI is `codex` — **pgrep both**):
 
-- **rollout logs** (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`): `codex.rs` tails the last `event_msg`: `task_started`=running / `task_complete`=done / `turn_aborted`=error. The active window is relaxed to 10 minutes to avoid false completion on long turns.
+- **rollout logs** (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`): `codex.rs` tails rollout JSONL and reads `event_msg.payload.type`: `task_started`=running / `task_complete`=done / `turn_aborted`=error. It also treats activity events such as `token_count`, `agent_message`, `mcp_tool_call_end`, and `web_search_end` as running when `task_started` has scrolled out of the tail. The active window is 30 minutes to avoid false completion on long turns.
 - **notify** (`config.toml`'s `notify`, also used by the desktop app): `asb_notify.py` maps `approval-requested` -> task_waiting.
-- **Merge key**: verified that **notify's `thread-id` == rollout's `session_id`**; both use `task_id = codex-<id>`, so there are no duplicate rows.
+- **Merge key**: verified that **notify's `thread-id` == rollout's `session_id`/`id`**; both use `task_id = codex-<id>`, so there are no duplicate rows.
 - In Codex's auto-approve mode, approval-requested doesn't fire (the waiting-approval wiring is there but unused).
 
 ---

@@ -69,9 +69,15 @@ body {
 .board.win {
   background-clip: padding-box;
   border: 1px solid var(--widget-edge);
+  padding: 3px 4px 3px;
+  font-size: 8px;
   box-shadow:
     0 0 0 1px var(--widget-edge),
     0 14px 34px rgba(0, 0, 0, 0.24);
+}
+
+.board.win.compact {
+  padding: 2px 4px;
 }
 
 .board::-webkit-scrollbar,
@@ -107,6 +113,13 @@ body {
   padding: 2px;
   margin-bottom: 0;
   border-bottom: none;
+}
+
+.board.win .board-header {
+  font-size: 5.8px;
+  letter-spacing: 1px;
+  padding: 0 1px 2px;
+  margin-bottom: 3px;
 }
 
 .bar-badges {
@@ -174,37 +187,39 @@ body {
   display: flex;
   align-items: center;
   gap: 9px;
-  min-height: 40px;
+  min-height: 36px;
   padding: 10px 4px 10px 12px;
   box-sizing: border-box;
 }
 
 .board.win .tool-section::before,
 .board.win .compact-row::before {
-  left: 3px;
+  left: 2px;
+  width: 1.5px;
 }
 
 .board.win .tool-section::before {
-  top: 12px;
-  bottom: 12px;
-  min-height: 32px;
+  top: 5px;
+  bottom: 5px;
+  min-height: 14px;
 }
 
 .board.win .compact-row::before {
   top: 50%;
   bottom: auto;
-  height: 28px;
+  height: 14px;
   transform: translateY(-50%);
 }
 
 .board.win .tool-section {
   min-height: 0;
-  padding: 10px 4px 12px 18px;
+  padding: 3px 0 3px 8px;
 }
 
 .board.win .compact-row {
-  min-height: 44px;
-  padding: 10px 4px 10px 18px;
+  min-height: 20px;
+  padding: 3px 0 3px 8px;
+  gap: 4px;
 }
 
 .compact-row .tool-name {
@@ -218,15 +233,116 @@ body {
 .tool-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 6px;
   padding: 0 0 2px;
+  min-width: 0;
 }
 
 .tool-name {
+  flex: 0 1 auto;
+  min-width: 0;
   font-weight: 600;
   font-size: 13px;
   letter-spacing: 0.2px;
   color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-quota-warnings,
+.tool-quota-blocked {
+  margin-left: auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  color: var(--yellow);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.tool-quota-blocked {
+  color: var(--red);
+}
+
+.tool-quota-blocked span:last-child,
+.tool-quota-warning {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool-quota-sep {
+  color: var(--dim2);
+  padding: 0 4px;
+}
+
+.board.win .tool-name {
+  font-size: 8px;
+  font-weight: 520;
+  letter-spacing: 0.1px;
+}
+
+.board.win .tool-quota-warnings,
+.board.win .tool-quota-blocked,
+.panel.win .tool-quota-warnings,
+.panel.win .tool-quota-blocked {
+  gap: 3px;
+  font-size: 7px;
+  font-weight: 560;
+}
+
+.board.win .tool-quota-sep,
+.panel.win .tool-quota-sep {
+  padding: 0 2px;
+}
+
+.board.win .tool-header {
+  gap: 3px;
+  padding-bottom: 0;
+}
+
+.board.win .task-row {
+  gap: 3px;
+  line-height: 11px;
+  padding: 0;
+}
+
+.board.win .task-name {
+  max-width: 52px;
+  font-weight: 500;
+}
+
+.board.win .task-tokens,
+.board.win .task-time {
+  font-size: 7px;
+}
+
+.board.win .marquee {
+  min-width: 0;
+  display: block;
+  text-overflow: ellipsis;
+}
+
+.board.win .marquee-inner {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.board.win .marquee.scrolling .marquee-inner {
+  animation: none;
+  padding-right: 0;
+}
+
+.board.win .marquee.scrolling .marquee-inner[aria-hidden="true"] {
+  display: none;
 }
 
 .idle-text {
@@ -310,6 +426,36 @@ body {
   font-size: 11px;
   font-weight: 700;
   line-height: 1;
+}
+
+.board.win .status-icon,
+.panel.win .status-icon {
+  flex-basis: 9px;
+  width: 9px;
+  height: 9px;
+  border-width: 1.2px;
+  font-size: 7px;
+}
+
+.board.win .quota-icon,
+.panel.win .quota-icon {
+  flex-basis: 9px;
+  width: 9px;
+  height: 9px;
+}
+
+.board.win .quota-count {
+  font-size: 7px;
+  font-weight: 520;
+}
+
+.board.win .quota-warn-icon,
+.panel.win .quota-warn-icon {
+  font-size: 8px;
+}
+
+.board.win .quota-warn-text {
+  font-size: 7px;
 }
 
 .status-icon.running {
@@ -401,7 +547,7 @@ body {
 .compact-icons {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 5px;
   flex-wrap: wrap;
 }
 
@@ -434,6 +580,7 @@ body {
 .panel.win {
   background-clip: padding-box;
   border: 1px solid var(--widget-edge);
+  font-size: 8px;
   box-shadow:
     0 0 0 1px var(--widget-edge),
     0 14px 34px rgba(0, 0, 0, 0.24);
@@ -450,6 +597,9 @@ body {
   letter-spacing: 2px;
   color: var(--dim2);
   border-bottom: 0.5px solid var(--hair);
+}
+
+.panel-drag {
   cursor: grab;
 }
 
@@ -488,15 +638,40 @@ body {
   position: relative;
 }
 
+.panel.win .panel-head {
+  gap: 6px;
+  padding: 6px 9px 6px 11px;
+  font-size: 6px;
+  letter-spacing: 1px;
+}
+
+.panel.win .panel-head-actions {
+  gap: 6px;
+}
+
+.panel.win .panel-close {
+  width: 14px;
+  height: 14px;
+  border-radius: 5px;
+  font-size: 9px;
+  line-height: 14px;
+}
+
+.panel.win .panel-sec {
+  padding: 5px 10px;
+}
+
 .panel.win .tool-section {
   min-height: 0;
-  padding: 6px 4px 8px 16px;
+  padding: 3px 0 3px 8px;
 }
 
 .panel.win .tool-section::before {
-  top: 8px;
-  bottom: 8px;
-  min-height: 24px;
+  left: 2px;
+  top: 5px;
+  bottom: 5px;
+  width: 1.5px;
+  min-height: 14px;
 }
 
 .panel.win .tool-header {
@@ -504,18 +679,20 @@ body {
 }
 
 .panel.win .tool-name {
-  font-size: 12px;
+  font-size: 8px;
+  font-weight: 520;
+  letter-spacing: 0.1px;
 }
 
 .panel.win .task-row {
-  gap: 6px;
-  line-height: 19px;
+  gap: 3px;
+  line-height: 11px;
   padding: 0;
 }
 
 .panel.win .status-dot {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
 }
 
 /* inset the divider so it doesn't touch the panel edges */
@@ -528,10 +705,20 @@ body {
   border-bottom: 0.5px solid var(--hair);
 }
 
+.panel.win .panel-sec::after {
+  left: 10px;
+  right: 10px;
+}
+
 .panel-label {
   font-size: 11px;
   color: var(--dim);
   margin-bottom: 6px;
+}
+
+.panel.win .panel-label {
+  font-size: 7px;
+  margin-bottom: 1px;
 }
 
 .panel-empty {
@@ -578,6 +765,14 @@ body {
   color: var(--fg);
 }
 
+.panel.win .row {
+  grid-template-columns: minmax(4em, max-content) minmax(70px, 1fr) auto;
+  column-gap: 5px;
+  row-gap: 2px;
+  padding: 1px 0;
+  font-size: 8px;
+}
+
 .panel .row > span:first-child {
   min-width: max-content;
   white-space: nowrap;
@@ -601,6 +796,11 @@ body {
   min-width: 34px;
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.panel.win .row-val {
+  font-size: 7px;
+  min-width: 23px;
 }
 
 /* toggle switch */
@@ -636,6 +836,20 @@ body {
   transform: translateX(14px);
 }
 
+.panel.win .sw {
+  width: 22px;
+  height: 13px;
+}
+
+.panel.win .sw-knob {
+  width: 9px;
+  height: 9px;
+}
+
+.panel.win .sw.on .sw-knob {
+  transform: translateX(9px);
+}
+
 /* segmented control */
 .seg {
   display: inline-flex;
@@ -662,6 +876,15 @@ body {
   color: var(--fg);
 }
 
+.panel.win .seg {
+  border-radius: 7px;
+}
+
+.panel.win .seg button {
+  font-size: 8px;
+  padding: 2px 7px;
+}
+
 /* tool chips */
 .chips {
   display: flex;
@@ -685,6 +908,15 @@ body {
   color: var(--green);
 }
 
+.panel.win .chips {
+  gap: 4px;
+}
+
+.panel.win .chip {
+  font-size: 8px;
+  padding: 2px 7px;
+}
+
 .panel-foot {
   display: flex;
   align-items: center;
@@ -692,9 +924,18 @@ body {
   padding: 13px 18px;
 }
 
+.panel.win .panel-foot {
+  padding: 5px 10px;
+}
+
 .panel-note {
   color: var(--dim2);
   font-size: 11px;
+}
+
+.panel.win .panel-note,
+.panel.win .panel-quit {
+  font-size: 7px;
 }
 
 .panel-quit {

@@ -16,7 +16,7 @@ pub const PAUSED_REMOVE_TTL: Duration = Duration::from_secs(10800);
 
 /// A transcript file modified within the ttl = the session is still alive (thinking / streaming both write to it).
 /// This is a more reliable heartbeat than "tool completion events": alive-but-silent is no longer misjudged as lost.
-fn transcript_recent(path: &str, ttl: Duration) -> bool {
+pub(crate) fn transcript_recent(path: &str, ttl: Duration) -> bool {
     fs::metadata(path)
         .and_then(|m| m.modified())
         .map(|mtime| {
@@ -47,9 +47,26 @@ fn parse_reset_time(line: &str) -> Option<String> {
     }
 }
 
+fn reset_looks_like_clock(reset: Option<&String>) -> bool {
+    let Some(reset) = reset else {
+        return false;
+    };
+    let reset = reset.trim().to_ascii_lowercase();
+    let mut chars = reset.chars().peekable();
+    let mut digits = 0;
+    while matches!(chars.peek(), Some(c) if c.is_ascii_digit()) {
+        chars.next();
+        digits += 1;
+    }
+    if digits == 0 || digits > 2 {
+        return false;
+    }
+    matches!(chars.peek(), Some(':') | Some('a') | Some('p'))
+}
+
 /// The kind of block currently imposed by the API (judged from the transcript tail).
 #[derive(Debug, PartialEq)]
-enum Blocked {
+pub(crate) enum Blocked {
     /// Usage limit: kind = "weekly"/"session"/"quota" (only labeled when the message says so, otherwise neutral);
     /// reset = the raw reset-time text (may be empty).
     Quota { kind: &'static str, reset: Option<String> },
@@ -59,7 +76,7 @@ enum Blocked {
 
 /// Scan the transcript tail: take the last relevant signal. A successful response (output_tokens) means recovery.
 /// When quota/throttled the session is blocked and hooks stop firing, so the server scans actively, not relying on adapters.
-fn transcript_limit(path: &str) -> Blocked {
+pub(crate) fn transcript_limit(path: &str) -> Blocked {
     use std::io::{Read, Seek, SeekFrom};
     const TAIL: u64 = 128 * 1024;
     let mut f = match fs::File::open(path) {
@@ -94,17 +111,15 @@ fn transcript_limit(path: &str) -> Blocked {
             || line.contains("配额"); // also match Chinese-locale quota errors
         if usage_limit {
             // only label the kind when the message says so; otherwise neutral "quota", don't guess
+            let reset = parse_reset_time(line);
             let kind = if low.contains("weekly") || low.contains("this week") {
                 "weekly"
-            } else if low.contains("session limit") {
+            } else if low.contains("session limit") || reset_looks_like_clock(reset.as_ref()) {
                 "session"
             } else {
                 "quota"
             };
-            state = Blocked::Quota {
-                kind,
-                reset: parse_reset_time(line),
-            };
+            state = Blocked::Quota { kind, reset };
         } else if throttle {
             state = Blocked::Throttled;
         }
@@ -133,6 +148,8 @@ pub struct IncomingEvent {
     pub tokens: Option<u64>,
     #[serde(default)]
     pub transcript_path: Option<String>,
+    #[serde(default)]
+    pub quota_reset: Option<String>,
     #[serde(default)]
     pub timestamp: Option<String>,
 }
@@ -330,6 +347,9 @@ impl Store {
                 }
                 if ev.transcript_path.is_some() {
                     task.transcript_path = ev.transcript_path.clone();
+                }
+                if ev.quota_reset.is_some() {
+                    task.quota_reset = ev.quota_reset.clone();
                 }
                 task.updated_at = ts.clone();
                 task.last_event = Instant::now();
@@ -534,6 +554,7 @@ mod tests {
             message: Some("running xcodebuild".to_string()),
             tokens: None,
             transcript_path: None,
+            quota_reset: None,
             timestamp: Some("2026-07-05T10:00:00+09:00".to_string()),
         }
     }
@@ -613,6 +634,7 @@ mod tests {
             message: None,
             tokens: None,
             transcript_path: None,
+            quota_reset: None,
             timestamp: None,
         }
     }
@@ -657,6 +679,7 @@ mod tests {
             message: None,
             tokens: None,
             transcript_path: None,
+            quota_reset: None,
             timestamp: None,
         });
         assert_eq!(s.tools_snapshot().len(), 1, "only codex remains");
@@ -918,6 +941,29 @@ mod tests {
             transcript_limit(&p),
             Blocked::Quota { kind: "quota", reset: None },
             "kind unstated -> neutral quota, don't guess 5h/weekly"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn transcript_limit_clock_reset_implies_session_limit() {
+        use std::io::Write;
+        let mut path = std::env::temp_dir();
+        path.push(format!("asb_clock_reset_{}.jsonl", std::process::id()));
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(
+            f,
+            "{{\"isApiErrorMessage\":true,\"message\":\"Usage limit reached. Resets at 2:50 PM\"}}"
+        )
+        .unwrap();
+        let p = path.to_string_lossy().to_string();
+        assert_eq!(
+            transcript_limit(&p),
+            Blocked::Quota {
+                kind: "session",
+                reset: Some("2:50 PM".to_string())
+            },
+            "Claude's current usage-limit text has no explicit session word, but a clock reset means the 5h/session window"
         );
         let _ = std::fs::remove_file(&path);
     }

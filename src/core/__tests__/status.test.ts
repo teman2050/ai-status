@@ -96,12 +96,24 @@ describe("quotaWarnings", () => {
     expect(quotaWarnings(usage({ week_used: 79 }), NOW)).toHaveLength(0); // 21% left
     const w = quotaWarnings(usage({ week_used: 90 }), NOW); // 10% left
     expect(w).toHaveLength(1);
-    expect(w[0]).toContain("10%");
-    expect(w[0]).toContain("Weekly");
+    expect(w[0].text).toContain("10%");
+    expect(w[0].text).toContain("Weekly");
   });
 
   it("reports both windows when both are low", () => {
     expect(quotaWarnings(usage({ h5_used: 85, week_used: 92 }), NOW)).toHaveLength(2);
+  });
+
+  it("floors remaining percent to match Codex desktop", () => {
+    const w = quotaWarnings(usage({ h5_used: 94.2 }), NOW);
+    expect(w).toHaveLength(1);
+    expect(w[0].text).toContain("5%");
+  });
+
+  it("hides 5h when weekly is exhausted", () => {
+    const w = quotaWarnings(usage({ h5_used: 96, week_used: 100 }), NOW);
+    expect(w).toHaveLength(1);
+    expect(w[0].key).toBe("weekly");
   });
 
   it("ignores a window that has already reset", () => {

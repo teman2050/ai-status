@@ -29,9 +29,7 @@ $runner = @"
 `$env:VITE_DIAG_TOGGLE_COMPACT = '1'
 `$env:AI_STATUS_DIAG_PATH = '$DiagPath'
 `$env:AI_STATUS_DIAG_OPEN_PANEL = '1'
-`$env:RUSTUP_HOME = "`$env:USERPROFILE\.rustup"
-`$env:CARGO_HOME = '$WorkDir\cargo-home'
-`$env:HOME = '$WorkDir\cargo-home\home'
+`$env:CARGO_BUILD_JOBS = '1'
 `$env:Path = "`$env:USERPROFILE\.cargo\bin;`$env:Path"
 `$env:GIT_CONFIG_GLOBAL = 'NUL'
 `$env:HTTP_PROXY = ''
@@ -204,14 +202,39 @@ using System;
 using System.Runtime.InteropServices;
 
 public static class Win32InputTools {
+  [StructLayout(LayoutKind.Sequential)]
+  public struct INPUT {
+    public uint type;
+    public MOUSEINPUT mi;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct MOUSEINPUT {
+    public int dx;
+    public int dy;
+    public uint mouseData;
+    public uint dwFlags;
+    public uint time;
+    public UIntPtr dwExtraInfo;
+  }
+
   [DllImport("user32.dll")]
   public static extern bool SetForegroundWindow(IntPtr hWnd);
 
   [DllImport("user32.dll")]
   public static extern bool SetCursorPos(int x, int y);
 
-  [DllImport("user32.dll")]
-  public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
+  [DllImport("user32.dll", SetLastError = true)]
+  public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+  public static void ClickCurrentPosition() {
+    INPUT[] inputs = new INPUT[2];
+    inputs[0].type = 0;
+    inputs[0].mi.dwFlags = 0x0002;
+    inputs[1].type = 0;
+    inputs[1].mi.dwFlags = 0x0004;
+    SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
+  }
 }
 "@
   }
@@ -219,9 +242,39 @@ public static class Win32InputTools {
   Start-Sleep -Milliseconds 150
   [void][Win32InputTools]::SetCursorPos($X, $Y)
   Start-Sleep -Milliseconds 80
-  [Win32InputTools]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
-  Start-Sleep -Milliseconds 60
-  [Win32InputTools]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+  [Win32InputTools]::ClickCurrentPosition()
+}
+
+function Invoke-ButtonByName {
+  param(
+    [int64]$WindowHandle,
+    [string]$Name
+  )
+  Add-Type -AssemblyName UIAutomationClient
+  Add-Type -AssemblyName UIAutomationTypes
+  $root = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$WindowHandle)
+  if (-not $root) {
+    return $false
+  }
+  $nameCondition = New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::NameProperty,
+    $Name
+  )
+  $buttonCondition = New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+    [System.Windows.Automation.ControlType]::Button
+  )
+  $condition = New-Object System.Windows.Automation.AndCondition($nameCondition, $buttonCondition)
+  $button = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+  if (-not $button) {
+    return $false
+  }
+  $pattern = $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+  if (-not $pattern) {
+    return $false
+  }
+  $pattern.Invoke()
+  return $true
 }
 
 $process = Start-Process `
@@ -244,10 +297,13 @@ try {
     if (-not $panelBeforeClose) {
       throw "Panel window was not visible before close-click verification."
     }
-    $clickX = [int]($panelBeforeClose.x + $panelBeforeClose.width - 68)
-    $clickY = [int]($panelBeforeClose.y + 66)
+    $clickX = [int]($panelBeforeClose.x + $panelBeforeClose.width - 49)
+    $clickY = [int]($panelBeforeClose.y + 42)
     Write-Host "clickPanelClose=$($panelBeforeClose.hwnd),$clickX,$clickY"
-    Invoke-LeftClick -WindowHandle ([int64]$panelBeforeClose.hwnd) -X $clickX -Y $clickY
+    $invoked = Invoke-ButtonByName -WindowHandle ([int64]$panelBeforeClose.hwnd) -Name "Close"
+    if (-not $invoked) {
+      Invoke-LeftClick -WindowHandle ([int64]$panelBeforeClose.hwnd) -X $clickX -Y $clickY
+    }
     Start-Sleep -Milliseconds 900
   }
   Save-Screenshot -Path $ScreenshotPath
