@@ -1,0 +1,276 @@
+/* Windows-only style overrides (.board.win / .panel.win), split out so the Windows
+   maintainer owns this file outright — shared styles live in styles.css and are
+   maintained Mac-first. Loaded after styles.css; the .win specificity wins anyway. */
+
+.board.win {
+  background-clip: padding-box;
+  border: 1px solid var(--widget-edge);
+  padding: 3px 4px 3px;
+  font-size: 8px;
+  box-shadow:
+    0 0 0 1px var(--widget-edge),
+    0 14px 34px rgba(0, 0, 0, 0.24);
+}
+
+.board.win.compact {
+  padding: 2px 4px;
+}
+
+.board.win .board-header {
+  font-size: 5.8px;
+  letter-spacing: 1px;
+  padding: 0 1px 2px;
+  margin-bottom: 3px;
+}
+
+.board.win .tool-section::before,
+.board.win .compact-row::before {
+  left: 2px;
+  width: 1.5px;
+}
+
+.board.win .tool-section::before {
+  top: 5px;
+  bottom: 5px;
+  min-height: 14px;
+}
+
+.board.win .compact-row::before {
+  top: 50%;
+  bottom: auto;
+  height: 14px;
+  transform: translateY(-50%);
+}
+
+.board.win .tool-section {
+  min-height: 0;
+  padding: 3px 0 3px 8px;
+}
+
+.board.win .compact-row {
+  min-height: 20px;
+  padding: 3px 0 3px 8px;
+  gap: 4px;
+}
+
+.board.win .tool-name {
+  font-size: 8px;
+  font-weight: 520;
+  letter-spacing: 0.1px;
+}
+
+.board.win .tool-quota-warnings,
+.board.win .tool-quota-blocked,
+.panel.win .tool-quota-warnings,
+.panel.win .tool-quota-blocked {
+  gap: 3px;
+  font-size: 7px;
+  font-weight: 560;
+}
+
+.board.win .tool-quota-sep,
+.panel.win .tool-quota-sep {
+  padding: 0 2px;
+}
+
+.board.win .tool-header {
+  gap: 3px;
+  padding-bottom: 0;
+}
+
+.board.win .task-row {
+  gap: 3px;
+  line-height: 11px;
+  padding: 0;
+}
+
+.board.win .task-name {
+  max-width: 52px;
+  font-weight: 500;
+}
+
+.board.win .task-tokens,
+.board.win .task-time {
+  font-size: 7px;
+}
+
+.board.win .marquee {
+  min-width: 0;
+  display: block;
+  text-overflow: ellipsis;
+}
+
+.board.win .marquee-inner {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.board.win .marquee.scrolling .marquee-inner {
+  animation: none;
+  padding-right: 0;
+}
+
+.board.win .marquee.scrolling .marquee-inner[aria-hidden="true"] {
+  display: none;
+}
+
+.board.win .status-icon,
+.panel.win .status-icon {
+  flex-basis: 9px;
+  width: 9px;
+  height: 9px;
+  border-width: 1.2px;
+  font-size: 7px;
+}
+
+.board.win .quota-icon,
+.panel.win .quota-icon {
+  flex-basis: 9px;
+  width: 9px;
+  height: 9px;
+}
+
+.board.win .quota-count {
+  font-size: 7px;
+  font-weight: 520;
+}
+
+.board.win .quota-warn-icon,
+.panel.win .quota-warn-icon {
+  font-size: 8px;
+}
+
+.board.win .quota-warn-text {
+  font-size: 7px;
+}
+
+.panel.win {
+  background-clip: padding-box;
+  border: 1px solid var(--widget-edge);
+  font-size: 8px;
+  box-shadow:
+    0 0 0 1px var(--widget-edge),
+    0 14px 34px rgba(0, 0, 0, 0.24);
+}
+
+.panel.win .panel-head {
+  gap: 6px;
+  padding: 6px 9px 6px 11px;
+  font-size: 6px;
+  letter-spacing: 1px;
+}
+
+.panel.win .panel-head-actions {
+  gap: 6px;
+}
+
+.panel.win .panel-close {
+  width: 14px;
+  height: 14px;
+  border-radius: 5px;
+  font-size: 9px;
+  line-height: 14px;
+}
+
+.panel.win .panel-sec {
+  padding: 5px 10px;
+}
+
+.panel.win .tool-section {
+  min-height: 0;
+  padding: 3px 0 3px 8px;
+}
+
+.panel.win .tool-section::before {
+  left: 2px;
+  top: 5px;
+  bottom: 5px;
+  width: 1.5px;
+  min-height: 14px;
+}
+
+.panel.win .tool-header {
+  padding-bottom: 0;
+}
+
+.panel.win .tool-name {
+  font-size: 8px;
+  font-weight: 520;
+  letter-spacing: 0.1px;
+}
+
+.panel.win .task-row {
+  gap: 3px;
+  line-height: 11px;
+  padding: 0;
+}
+
+.panel.win .status-dot {
+  width: 12px;
+  height: 12px;
+}
+
+.panel.win .panel-sec::after {
+  left: 10px;
+  right: 10px;
+}
+
+.panel.win .panel-label {
+  font-size: 7px;
+  margin-bottom: 1px;
+}
+
+.panel.win .row {
+  grid-template-columns: minmax(4em, max-content) minmax(70px, 1fr) auto;
+  column-gap: 5px;
+  row-gap: 2px;
+  padding: 1px 0;
+  font-size: 8px;
+}
+
+.panel.win .row-val {
+  font-size: 7px;
+  min-width: 23px;
+}
+
+.panel.win .sw {
+  width: 22px;
+  height: 13px;
+}
+
+.panel.win .sw-knob {
+  width: 9px;
+  height: 9px;
+}
+
+.panel.win .sw.on .sw-knob {
+  transform: translateX(9px);
+}
+
+.panel.win .seg {
+  border-radius: 7px;
+}
+
+.panel.win .seg button {
+  font-size: 8px;
+  padding: 2px 7px;
+}
+
+.panel.win .chips {
+  gap: 4px;
+}
+
+.panel.win .chip {
+  font-size: 8px;
+  padding: 2px 7px;
+}
+
+.panel.win .panel-foot {
+  padding: 5px 10px;
+}
+
+.panel.win .panel-note,
+.panel.win .panel-quit {
+  font-size: 7px;
+}
