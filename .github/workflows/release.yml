@@ -1,7 +1,8 @@
 name: release
 
-# Build installers on each platform's native runner and publish them to the tag's Release
-# (Windows packages can only be produced on a Windows runner).
+# Build the macOS installer (universal .dmg) and publish it to the tag's Release.
+# Windows packages are built and uploaded separately by the maintainer, so this workflow
+# only produces the macOS artifact; it just creates/attaches to the tag's draft Release.
 # Two triggers:
 #  1) Manual (Actions -> release -> Run workflow): pass an existing tag (e.g. v1.0.0); artifacts are attached to that Release.
 #  2) Pushing a v* tag: automatically builds for that tag and creates a (draft) Release.
@@ -28,10 +29,6 @@ jobs:
           - platform: macos-latest
             args: "--target universal-apple-darwin"
             rustTargets: "aarch64-apple-darwin,x86_64-apple-darwin"
-          # Windows x64: .msi (WiX) + setup.exe (NSIS)
-          - platform: windows-latest
-            args: ""
-            rustTargets: ""
 
     runs-on: ${{ matrix.platform }}
     steps:
