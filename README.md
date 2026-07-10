@@ -4,7 +4,7 @@
 
 See instantly which tool is working, which is waiting for you, which errored, and which hit its quota — no more juggling terminals and windows. Runs fully **local: no network, nothing leaves your machine.**
 
-![Floating widget](docs/screenshots/floating-widget.png)
+![Windows English widget](docs/screenshots/windows-english-widget.png)
 
 ## Why I built it
 
@@ -17,8 +17,10 @@ Down the road I also want it to **track token usage** — partly to know where m
 - **Grouped by tool** — Claude Code, Codex, Cursor each get a row with a brand-colored accent bar (extensible to Trae, etc.).
 - **Per-task status** — spinning green = running, yellow `?` = waiting for you, red `×` = error, green check = just finished (auto-hides after a few seconds). Multiple tasks per tool are shown separately.
 - **Quota exhausted** — when the whole account hits its limit, that tool's tasks collapse into a single red clock with the countdown and reset time.
+- **Claude Code quota fallback** — scans recent local Claude Code transcripts for `Usage limit reached` signals, so the 5h/session quota can still show even if the AI STATUS hook is not installed.
 - **Network hint** — a tool's flaky/offline network is flagged separately.
 - **Tokens + timer** — each task shows tokens used and elapsed time; long text auto-scrolls.
+- **Latest Codex support** — reads current Codex rollout JSONL logs, accepts both `session_id` and `id`, and recognizes newer activity events such as `agent_message`, `mcp_tool_call_end`, and `web_search_end`.
 - **Compact mode** — collapse to one row per tool (name + status ring); double-click the widget to toggle.
 - **Menu-bar panel** — click the menu-bar icon for status + settings (dark/light theme, language, opacity, launch at login, menu-bar progress rings, …).
 - **Drag anywhere** — grab any spot to reposition; never blocks the center of the screen.
@@ -26,9 +28,9 @@ Down the road I also want it to **track token usage** — partly to know where m
 
 ## Screenshots
 
-| Widget | Compact | Settings panel |
-| :---: | :---: | :---: |
-| ![Widget](docs/screenshots/floating-widget.png) | ![Compact](docs/screenshots/floating-compact.png) | ![Settings](docs/screenshots/settings-panel.png) |
+| Windows English | Widget | Compact | Settings panel |
+| :---: | :---: | :---: | :---: |
+| ![Windows English widget](docs/screenshots/windows-english-widget.png) | ![Widget](docs/screenshots/floating-widget.png) | ![Compact](docs/screenshots/floating-compact.png) | ![Settings](docs/screenshots/settings-panel.png) |
 
 ## Install
 
@@ -52,8 +54,8 @@ Windows installers (`.msi` / `-setup.exe`) are built on demand by GitHub Actions
 
 Tool status is reported by **local adapters** (hook / notify scripts) to `127.0.0.1:7799` (a localhost-only port). Adapters send only "tool name / project name / session id / status summary / token count" — **never your prompts, code, full logs, API keys, or environment variables.**
 
-- **Claude Code** — register `adapters/claude-code/asb_hook.py` in the hooks section of `~/.claude/settings.json`.
-- **Codex** — point `notify` in `~/.codex/config.toml` at `adapters/codex/asb_notify_chain.sh` (turn logs are polled automatically).
+- **Claude Code** — register `adapters/claude-code/asb_hook.py` in the hooks section of `~/.claude/settings.json`. Without the hook, AI STATUS still falls back to recent local transcripts under `~/.claude/projects` to detect usage-limit/quota blocks.
+- **Codex** — point `notify` in `~/.codex/config.toml` at `adapters/codex/asb_notify_chain.sh` (turn logs are polled automatically). Current Codex desktop/CLI rollout logs are supported, including the newer `payload.id` session field and activity events emitted after recent Codex updates.
 - **Cursor** — point `~/.cursor/hooks.json` at `adapters/cursor/asb_cursor_hook.py`.
 
 Without hooks configured, the app also falls back to process detection (pgrep) to show whether a tool is running. To add a new tool, see [docs/detection-spec.md](docs/detection-spec.md).

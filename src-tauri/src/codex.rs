@@ -6,30 +6,83 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
 
-const POLL_SECS: u64 = 5;
-// consider a rollout active if written in the last ~10 min: when a turn thinks for a long time or
+const POLL_SECS: u64 = 2;
+// consider a rollout active if written in the last ~30 min: when a turn thinks for a long time or
 // runs long commands without writing logs, keep it "running" as long as the tail is still
 // task_started (not complete), to avoid false-completion flicker.
-const ACTIVE_WINDOW: Duration = Duration::from_secs(600);
+const ACTIVE_WINDOW: Duration = Duration::from_secs(1800);
 const TAIL_BYTES: u64 = 1024 * 1024;
+
+#[derive(Debug, PartialEq, Eq)]
+enum RolloutLine {
+    TaskStarted,
+    TaskComplete,
+    TurnAborted,
+    Activity,
+    Other,
+}
 
 /// Determine the current turn status from the rollout tail: take the last relevant event_msg.
 /// task_started -> running; turn_aborted -> error (aborted); task_complete -> None (finished).
 pub fn turn_status(tail_lines: &[String]) -> Option<&'static str> {
     let mut status = None;
+    let mut activity_since_terminal = false;
     for line in tail_lines {
-        if !line.contains("\"event_msg\"") {
-            continue;
-        }
-        if line.contains("\"task_started\"") {
-            status = Some("running");
-        } else if line.contains("\"turn_aborted\"") {
-            status = Some("error");
-        } else if line.contains("\"task_complete\"") {
-            status = None;
+        match classify_rollout_line(line) {
+            RolloutLine::TaskStarted => {
+                status = Some("running");
+                activity_since_terminal = false;
+            }
+            RolloutLine::TurnAborted => {
+                status = Some("error");
+                activity_since_terminal = false;
+            }
+            RolloutLine::TaskComplete => {
+                status = None;
+                activity_since_terminal = false;
+            }
+            RolloutLine::Activity if status.is_none() => {
+                activity_since_terminal = true;
+            }
+            _ => {}
         }
     }
-    status
+    status.or(activity_since_terminal.then_some("running"))
+}
+
+fn classify_rollout_line(line: &str) -> RolloutLine {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+        return RolloutLine::Other;
+    };
+    let top_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
+    let payload_type = v
+        .get("payload")
+        .and_then(|p| p.get("type"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("");
+
+    if top_type == "event_msg" {
+        return match payload_type {
+            "task_started" => RolloutLine::TaskStarted,
+            "task_complete" => RolloutLine::TaskComplete,
+            "turn_aborted" => RolloutLine::TurnAborted,
+            "user_message"
+            | "token_count"
+            | "agent_reasoning"
+            | "agent_message"
+            | "patch_apply_end"
+            | "web_search_end"
+            | "mcp_tool_call_end"
+            | "image_generation_end"
+            | "context_compacted" => RolloutLine::Activity,
+            _ => RolloutLine::Other,
+        };
+    }
+
+    match top_type {
+        "response_item" | "turn_context" | "compacted" | "world_state" => RolloutLine::Activity,
+        _ => RolloutLine::Other,
+    }
 }
 
 fn workspace_from_cwd(cwd: &str) -> String {
@@ -58,7 +111,11 @@ fn normalize_workspace_name(name: &str) -> String {
 fn parse_session_meta(first_line: &str) -> Option<(String, String)> {
     let v: serde_json::Value = serde_json::from_str(first_line).ok()?;
     let p = v.get("payload").unwrap_or(&v);
-    let sid = p.get("session_id")?.as_str()?.to_string();
+    let sid = p
+        .get("session_id")
+        .or_else(|| p.get("id"))
+        .and_then(|s| s.as_str())?
+        .to_string();
     let cwd = p.get("cwd").and_then(|c| c.as_str()).unwrap_or("").to_string();
     Some((sid, workspace_from_cwd(&cwd)))
 }
@@ -135,6 +192,7 @@ fn event(tool_id: &str, event_type: &str, task_id: &str, workspace: &str, msg: &
         message: Some(msg.to_string()),
         tokens: None,
         transcript_path: None,
+        quota_reset: None,
         timestamp: None,
     }
 }
@@ -308,6 +366,57 @@ mod tests {
     }
 
     #[test]
+    fn turn_status_running_when_start_scrolled_out() {
+        let lines = vec![
+            r#"{"type":"response_item","payload":{"type":"function_call","name":"exec_command"}}"#.to_string(),
+            r#"{"type":"response_item","payload":{"type":"function_call_output","output":"..."}}"#.to_string(),
+            r#"{"type":"event_msg","payload":{"type":"token_count","info":{}}}"#.to_string(),
+        ];
+        assert_eq!(
+            turn_status(&lines),
+            Some("running"),
+            "ongoing activity should stay running even if task_started is outside the tail"
+        );
+    }
+
+    #[test]
+    fn turn_status_running_for_new_codex_activity_events() {
+        let lines = vec![
+            r#"{"type":"event_msg","payload":{"type":"mcp_tool_call_end"}}"#.to_string(),
+            r#"{"type":"event_msg","payload":{"type":"web_search_end"}}"#.to_string(),
+            r#"{"type":"event_msg","payload":{"type":"agent_message"}}"#.to_string(),
+        ];
+        assert_eq!(
+            turn_status(&lines),
+            Some("running"),
+            "new Codex activity event types should keep a tailed turn running"
+        );
+    }
+
+    #[test]
+    fn turn_status_complete_clears_activity() {
+        let lines = vec![
+            r#"{"type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}"#.to_string(),
+            r#"{"type":"response_item","payload":{"type":"message","role":"assistant"}}"#.to_string(),
+            r#"{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1"}}"#.to_string(),
+        ];
+        assert_eq!(turn_status(&lines), None, "task_complete -> inactive");
+    }
+
+    #[test]
+    fn turn_status_new_user_activity_after_complete_is_running() {
+        let lines = vec![
+            r#"{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1"}}"#.to_string(),
+            r#"{"type":"event_msg","payload":{"type":"user_message","message":"next"}}"#.to_string(),
+        ];
+        assert_eq!(
+            turn_status(&lines),
+            Some("running"),
+            "a new turn can be active before task_started is written"
+        );
+    }
+
+    #[test]
     fn turn_status_last_wins() {
         let lines = vec![
             r#"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"t1"}}"#.to_string(),
@@ -322,6 +431,14 @@ mod tests {
         let (sid, ws) = parse_session_meta(line).unwrap();
         assert_eq!(sid, "abc-123");
         assert_eq!(ws, "LifeAdminPet");
+    }
+
+    #[test]
+    fn parse_session_meta_accepts_payload_id_without_session_id() {
+        let line = r#"{"type":"session_meta","payload":{"id":"abc-123","cwd":"C:\\Users\\Admin\\proj\\github-com-owner-ai-status"}}"#;
+        let (sid, ws) = parse_session_meta(line).unwrap();
+        assert_eq!(sid, "abc-123");
+        assert_eq!(ws, "ai-status");
     }
 
     #[test]

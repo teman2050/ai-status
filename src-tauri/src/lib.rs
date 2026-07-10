@@ -1,3 +1,4 @@
+mod claude;
 mod codex;
 mod config;
 mod net;
@@ -315,6 +316,7 @@ pub fn run() {
             server::start(store.clone(), 7799);
             watcher::start(store.clone());
             net::start(store.clone(), cfg.clone());
+            claude::start(store.clone());
             codex::start(store.clone());
 
             // launch at login: sync with config on startup

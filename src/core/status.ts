@@ -2,6 +2,11 @@ import { t } from "./i18n";
 import type { NetworkStatus, QuotaUsage, TaskInfo, VisibleStatus } from "./types";
 
 export const DONE_TTL_MS = 4000; // done_event shows for 3~5s; use 4s
+export interface QuotaWarning {
+  key: "h5" | "weekly";
+  text: string;
+  remainingPct: number;
+}
 
 export const GLYPHS: Record<VisibleStatus, string> = {
   running: "▶",
@@ -161,37 +166,35 @@ export function formatQuotaShort(hint: string, now: number = Date.now()): string
   return `${cd} · ${clock}`;
 }
 
-export interface QuotaWarning {
-  window: "5h" | "weekly";
-  pct: number; // remaining percent (0-20)
-  when: string; // formatted reset moment ("16:05" / "Jul 2"), "" when unknown
+function quotaRemainingPct(used: number): number {
+  // Codex's own UI floors remaining percentages; matching it avoids a 5.x -> 6 mismatch.
+  return Math.max(0, Math.min(100, Math.floor(100 - used)));
 }
 
 /**
- * Approaching-limit warnings from live rate-limit usage (Codex): one entry per window
+ * Approaching-limit warnings from live rate-limit usage (Codex): one item per window
  * (5h / weekly) that has <=20% remaining and hasn't reset yet. Empty when nothing is low.
- * The percent is what's LEFT (100 - used); the reset is the window's rollover.
- * When the weekly window is exhausted (0% left), the 5h entry is dropped — a fresh
- * 5h window is useless while the whole week is spent.
+ * The percent shown is what's LEFT (100 - used), floored to match Codex's desktop UI.
+ * If weekly is exhausted, it dominates the account state, so the shorter 5h window is hidden.
  */
 export function quotaWarnings(
   usage: QuotaUsage,
   now: number = Date.now(),
 ): QuotaWarning[] {
-  const make = (
+  const warningFor = (
+    key: QuotaWarning["key"],
     used: number,
     resetEpoch: number,
-    window: "5h" | "weekly",
+    label: string,
     kind: "clock" | "date",
   ): QuotaWarning | null => {
-    const remaining = 100 - used;
-    if (remaining > 20) return null; // warn only when <=20% left
+    const pct = quotaRemainingPct(used);
+    if (pct > 20) return null; // warn only when <=20% left
     const resetMs = resetEpoch * 1000;
     if (resetEpoch > 0 && resetMs <= now) return null; // window already reset -> not low anymore
-    const pct = Math.max(0, Math.round(remaining));
-    let when = "";
+    let text = `${label} ${pct}%`;
     if (resetEpoch > 0) {
-      when =
+      const when =
         kind === "clock"
           ? new Date(resetMs).toLocaleTimeString([], {
               hour: "2-digit",
@@ -202,22 +205,15 @@ export function quotaWarnings(
               month: "short",
               day: "numeric",
             });
+      text += ` · ${when}`;
     }
-    return { window, pct, when };
+    return { key, text, remainingPct: pct };
   };
-  const h5 = make(usage.h5_used, usage.h5_reset, "5h", "clock");
-  const week = make(usage.week_used, usage.week_reset, "weekly", "date");
-  if (week && week.pct <= 0) return [week];
-  return [h5, week].filter((w): w is QuotaWarning => w !== null);
-}
-
-/**
- * Compact chip text for a quota warning shown inside the tool header ("5h 6%·16:05"):
- * short labels because the chip shares the line with the tool name and must not crowd it out.
- */
-export function formatQuotaChip(w: QuotaWarning): string {
-  const label = w.window === "5h" ? t("q_5h_s") : t("q_weekly_s");
-  return w.when ? `${label} ${w.pct}%·${w.when}` : `${label} ${w.pct}%`;
+  const h5 = warningFor("h5", usage.h5_used, usage.h5_reset, "5h", "clock");
+  const weeklyLabel = t("q_weekly").replace(/\s*quota\b/i, "");
+  const weekly = warningFor("weekly", usage.week_used, usage.week_reset, weeklyLabel, "date");
+  if (weekly && weekly.remainingPct <= 0) return [weekly];
+  return [h5, weekly].filter((w): w is QuotaWarning => w !== null);
 }
 
 export function formatTokens(total?: number | null): string {

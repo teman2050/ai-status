@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { t } from "../core/i18n";
-import { formatQuotaChip, formatQuotaRow, quotaWarnings, toolAccent } from "../core/status";
+import { formatQuotaRow, quotaWarnings, toolAccent } from "../core/status";
 import type { NetworkStatus, TaskInfo, ToolInfo } from "../core/types";
 import { QuotaIcon } from "./QuotaIcon";
 import { TaskRow } from "./TaskRow";
@@ -23,8 +23,6 @@ export function ToolSection({
 }) {
   const style = { "--accent": toolAccent(tool.tool_id) } as CSSProperties;
   // Approaching-limit warnings (Codex 5h / weekly), shown before the account is actually blocked.
-  // Quota belongs to the tool, not a task, so the chips sit right-aligned in the header line
-  // (compact text — the line is shared with wide tool names like "Claude Code").
   const warnings = tool.quota_usage ? quotaWarnings(tool.quota_usage) : [];
   // Quota exhaustion is tool-level: the whole account hit its limit, so hide all its tasks and
   // show one red quota row + countdown/reset time.
@@ -35,10 +33,10 @@ export function ToolSection({
       <section className="tool-section" style={style}>
         <div className="tool-header">
           <span className="tool-name">{tool.tool_name}</span>
-        </div>
-        <div className="task-row">
-          <QuotaIcon />
-          <span className="quota-text">{formatQuotaRow(tool.quota)}</span>
+          <span className="tool-quota-blocked">
+            <QuotaIcon />
+            <span>{formatQuotaRow(tool.quota)}</span>
+          </span>
         </div>
         {network !== "ok" && (
           <div className="task-row">
@@ -54,13 +52,14 @@ export function ToolSection({
       <div className="tool-header">
         <span className="tool-name">{tool.tool_name}</span>
         {warnings.length > 0 && (
-          <div className="quota-chips" title={t("q_low_title")}>
-            {warnings.map((w) => (
-              <span className="quota-chip" key={w.window}>
-                ⚠ {formatQuotaChip(w)}
+          <span className="tool-quota-warnings" title={warnings.map((w) => w.text).join(" / ")}>
+            {warnings.map((w, i) => (
+              <span className="tool-quota-warning" key={w.key}>
+                {i > 0 && <span className="tool-quota-sep">/</span>}
+                {w.text}
               </span>
             ))}
-          </div>
+          </span>
         )}
       </div>
       {network !== "ok" && (

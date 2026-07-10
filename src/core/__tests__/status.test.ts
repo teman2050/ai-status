@@ -3,7 +3,6 @@ import {
   formatElapsed,
   formatTokens,
   pruneDoneTasks,
-  formatQuotaChip,
   formatQuotaRow,
   quotaWarnings,
   toolBadge,
@@ -98,21 +97,25 @@ describe("quotaWarnings", () => {
     expect(quotaWarnings(usage({ week_used: 79 }), NOW)).toHaveLength(0); // 21% left
     const w = quotaWarnings(usage({ week_used: 90 }), NOW); // 10% left
     expect(w).toHaveLength(1);
-    expect(w[0].pct).toBe(10);
-    expect(w[0].window).toBe("weekly");
-    expect(w[0].when).not.toBe(""); // reset moment resolved from the epoch
+    expect(w[0].text).toContain("10%");
+    expect(w[0].text).toContain("Weekly");
   });
 
   it("reports both windows when both are low, 5h first", () => {
     const w = quotaWarnings(usage({ h5_used: 85, week_used: 92 }), NOW);
-    expect(w.map((x) => x.window)).toEqual(["5h", "weekly"]);
+    expect(w.map((x) => x.key)).toEqual(["h5", "weekly"]);
   });
 
-  it("drops the 5h entry when the weekly window is exhausted", () => {
-    const w = quotaWarnings(usage({ h5_used: 85, week_used: 100 }), NOW);
+  it("floors remaining percent to match Codex desktop", () => {
+    const w = quotaWarnings(usage({ h5_used: 94.2 }), NOW);
     expect(w).toHaveLength(1);
-    expect(w[0].window).toBe("weekly");
-    expect(w[0].pct).toBe(0);
+    expect(w[0].text).toContain("5%");
+  });
+
+  it("hides 5h when weekly is exhausted", () => {
+    const w = quotaWarnings(usage({ h5_used: 96, week_used: 100 }), NOW);
+    expect(w).toHaveLength(1);
+    expect(w[0].key).toBe("weekly");
   });
 
   it("ignores a window that has already reset", () => {
@@ -142,18 +145,5 @@ describe("formatQuotaRow", () => {
     const night = new Date(2026, 6, 8, 23, 0, 0, 0).getTime();
     const s = formatQuotaRow("session|1:30am", night);
     expect(s).toContain("2h30m");
-  });
-});
-
-describe("formatQuotaChip", () => {
-  beforeAll(() => setLang("en"));
-
-  it("renders compact label, percent, and reset", () => {
-    expect(formatQuotaChip({ window: "5h", pct: 6, when: "16:05" })).toBe("5h 6%·16:05");
-    expect(formatQuotaChip({ window: "weekly", pct: 3, when: "Jul 2" })).toBe("wk 3%·Jul 2");
-  });
-
-  it("omits the reset when unknown", () => {
-    expect(formatQuotaChip({ window: "5h", pct: 0, when: "" })).toBe("5h 0%");
   });
 });

@@ -214,6 +214,7 @@ fn event(tool_id: &str, connected: bool) -> IncomingEvent {
         message: None,
         tokens: None,
         transcript_path: None,
+        quota_reset: None,
         timestamp: None,
     }
 }
