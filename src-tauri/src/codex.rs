@@ -180,6 +180,51 @@ fn read_tail(path: &PathBuf) -> Vec<String> {
     buf.lines().map(|s| s.to_string()).collect()
 }
 
+/// Any rollout modified within `window` = Codex has been used recently. This — not process
+/// presence — is what "Codex online" means: the ChatGPT desktop app keeps `codex.exe` alive
+/// in the background 24/7, but rollout files are only written during real Codex use.
+fn any_rollout_recent(base: &PathBuf, window: Duration) -> bool {
+    for day in recent_day_dirs(base) {
+        let Ok(rd) = fs::read_dir(&day) else {
+            continue;
+        };
+        for entry in rd.flatten() {
+            let p = entry.path();
+            if p.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            if recently_modified(&p, window) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Tool-level connect/disconnect for Codex (no session): disconnect clears the tool row and
+/// any leftover tasks, so an idle Codex disappears instead of latching "online" forever.
+fn tool_event(connected: bool) -> IncomingEvent {
+    IncomingEvent {
+        tool_id: "codex".to_string(),
+        event_type: if connected {
+            "tool_connected"
+        } else {
+            "tool_disconnected"
+        }
+        .to_string(),
+        workspace: None,
+        cwd: None,
+        session_id: None,
+        task_id: None,
+        status: None,
+        message: None,
+        tokens: None,
+        transcript_path: None,
+        quota_reset: None,
+        timestamp: None,
+    }
+}
+
 fn event(tool_id: &str, event_type: &str, task_id: &str, workspace: &str, msg: &str) -> IncomingEvent {
     IncomingEvent {
         tool_id: tool_id.to_string(),
@@ -293,8 +338,11 @@ pub fn start(store: Arc<Mutex<Store>>) {
     thread::spawn(move || {
         // task_id -> last reported status, for diffing
         let mut prev: HashMap<String, &'static str> = HashMap::new();
+        // whether the Codex tool row is currently shown (driven by rollout recency, not by process)
+        let mut present = false;
         loop {
             let active = scan_active(&base);
+            let recent = any_rollout_recent(&base, ACTIVE_WINDOW);
             {
                 let mut s = store.lock().unwrap();
                 // newly appeared or status changed -> report the corresponding event
@@ -314,11 +362,23 @@ pub fn start(store: Arc<Mutex<Store>>) {
                         s.apply(event("codex", "task_done", id, "Codex", ""));
                     }
                 }
+                // tool presence: online only while Codex was used recently. Emitted after the
+                // task events above so a disconnect (which wipes the tool + its tasks) is never
+                // undone by a task_done in the same tick.
+                if recent && !present {
+                    s.apply(tool_event(true));
+                } else if !recent && present {
+                    s.apply(tool_event(false));
+                }
             }
-            // report the latest rate-limit usage (5h + weekly) for the quota warning; keep last-known if none
-            if let Some(usage) = latest_rate_limits(&base) {
-                store.lock().unwrap().set_quota_usage("codex", Some(usage));
+            // report the latest rate-limit usage (5h + weekly) for the quota warning; only while
+            // recently active, so an idle Codex doesn't resurface stale quota on a hidden tool.
+            if recent {
+                if let Some(usage) = latest_rate_limits(&base) {
+                    store.lock().unwrap().set_quota_usage("codex", Some(usage));
+                }
             }
+            present = recent;
             let cur: HashMap<String, &'static str> =
                 active.iter().map(|(k, (_, st))| (k.clone(), *st)).collect();
             prev = cur;
@@ -478,6 +538,30 @@ mod tests {
             r#"{"type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}"#.to_string(),
         ];
         assert!(parse_rate_limits(&lines).is_none());
+    }
+
+    #[test]
+    fn any_rollout_recent_reflects_activity_not_process() {
+        use std::time::Duration as StdDuration;
+        let dir = std::env::temp_dir().join(format!("asb_codex_recent_{}", std::process::id()));
+        let day = dir.join("2026").join("07").join("12");
+        fs::create_dir_all(&day).unwrap();
+
+        // no rollout yet -> not recent (Codex not in use even if codex.exe is running)
+        assert!(!any_rollout_recent(&dir, StdDuration::from_secs(1800)));
+
+        // a just-written rollout -> recent
+        let path = day.join("rollout-abc.jsonl");
+        fs::write(&path, "{}\n").unwrap();
+        assert!(any_rollout_recent(&dir, StdDuration::from_secs(1800)));
+
+        // age it past the window -> no longer recent (idle Codex disappears)
+        let old = SystemTime::now() - StdDuration::from_secs(3600);
+        let f = fs::OpenOptions::new().write(true).open(&path).unwrap();
+        f.set_times(fs::FileTimes::new().set_modified(old)).unwrap();
+        assert!(!any_rollout_recent(&dir, StdDuration::from_secs(1800)));
+
+        fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

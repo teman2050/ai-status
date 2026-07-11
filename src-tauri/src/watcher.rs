@@ -26,16 +26,11 @@ struct Watched {
     path_contains: Option<&'static str>,
 }
 
+// Codex is deliberately NOT process-watched: the ChatGPT desktop app keeps a `codex.exe`
+// runtime alive in the background 24/7, so process presence does not mean "Codex is in use".
+// Codex online/offline is driven by rollout-log activity instead (see codex.rs).
 #[cfg(not(windows))]
 const WATCHED: &[Watched] = &[
-    Watched {
-        tool_id: "codex",
-        process_name: "codex", // CLI
-    },
-    Watched {
-        tool_id: "codex",
-        process_name: "Codex", // desktop app
-    },
     Watched {
         tool_id: "cursor",
         process_name: "Cursor",
@@ -54,16 +49,9 @@ const WATCHED: &[Watched] = &[
         process_name: "claude-code",
         path_contains: None,
     },
-    Watched {
-        tool_id: "codex",
-        process_name: "codex",
-        path_contains: None,
-    },
-    Watched {
-        tool_id: "codex",
-        process_name: "Codex",
-        path_contains: None,
-    },
+    // Codex intentionally omitted: the ChatGPT desktop app runs `codex.exe` permanently in
+    // the background, so process presence is a false positive. Codex online is driven by
+    // rollout-log activity instead (see codex.rs).
     Watched {
         tool_id: "cursor",
         process_name: "Cursor",
