@@ -27,6 +27,12 @@ pub struct Config {
     pub codex_notify: bool, // auto-manage the Codex notify entry (chains any original notifier)
     #[serde(default = "default_true")]
     pub cursor_hooks: bool, // auto-manage Cursor hook entries (built-in hook client)
+    #[serde(default)]
+    pub device_api: bool, // LAN device API for hardware displays (ESP32 etc.); off = loopback only
+    #[serde(default = "default_device_port")]
+    pub device_api_port: u16,
+    #[serde(default)]
+    pub device_api_token: String, // optional; empty = no auth on the device API
 }
 
 fn default_lang() -> String {
@@ -35,6 +41,10 @@ fn default_lang() -> String {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_device_port() -> u16 {
+    7788
 }
 
 impl Default for Config {
@@ -57,6 +67,9 @@ impl Default for Config {
             claude_hooks: true,
             codex_notify: true,
             cursor_hooks: true,
+            device_api: false,
+            device_api_port: 7788,
+            device_api_token: String::new(),
         }
     }
 }

@@ -4,6 +4,7 @@ mod codex;
 mod codex_notify;
 mod config;
 mod cursor_hooks;
+mod device;
 mod hook_client;
 mod net;
 mod server;
@@ -17,6 +18,10 @@ pub fn hook_client_main(tool: &str) {
 }
 
 use config::{Config, ConfigDir, ConfigState};
+
+/// The event store, exposed to commands so config changes can restart the
+/// device API without threading the Arc through every call site.
+struct StoreState(Arc<Mutex<store::Store>>);
 use std::{
     fs::OpenOptions,
     io::Write,
@@ -268,6 +273,19 @@ fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+/// LAN IP shown in settings next to the device-API toggle (the UDP connect
+/// picks the default-route interface; no packet is actually sent).
+#[tauri::command]
+fn get_lan_ip() -> String {
+    std::net::UdpSocket::bind("0.0.0.0:0")
+        .and_then(|s| {
+            s.connect("8.8.8.8:80")?;
+            s.local_addr()
+        })
+        .map(|a| a.ip().to_string())
+        .unwrap_or_default()
+}
+
 #[tauri::command]
 fn get_config(state: State<ConfigState>) -> Config {
     state.0.lock().unwrap().clone()
@@ -278,17 +296,21 @@ fn set_config(
     app: tauri::AppHandle,
     state: State<ConfigState>,
     dir: State<ConfigDir>,
+    store: State<StoreState>,
     config: Config,
 ) {
     config::save(&dir.0, &config);
-    let (launch_changed, claude_changed, codex_changed, cursor_changed) = {
+    let (launch_changed, claude_changed, codex_changed, cursor_changed, device_changed) = {
         let mut cur = state.0.lock().unwrap();
         let launch = cur.launch_at_login != config.launch_at_login;
         let claude = cur.claude_hooks != config.claude_hooks;
         let codex = cur.codex_notify != config.codex_notify;
         let cursor = cur.cursor_hooks != config.cursor_hooks;
+        let device = cur.device_api != config.device_api
+            || cur.device_api_port != config.device_api_port
+            || cur.device_api_token != config.device_api_token;
         *cur = config.clone();
-        (launch, claude, codex, cursor)
+        (launch, claude, codex, cursor, device)
     };
     if launch_changed {
         config::apply_launch_at_login(config.launch_at_login);
@@ -304,6 +326,15 @@ fn set_config(
     if cursor_changed {
         let enabled = config.cursor_hooks;
         std::thread::spawn(move || cursor_hooks::sync(enabled));
+    }
+    if device_changed {
+        let store = store.0.clone();
+        let (enabled, port, token) = (
+            config.device_api,
+            config.device_api_port,
+            config.device_api_token.clone(),
+        );
+        std::thread::spawn(move || device::apply(store, enabled, port, &token));
     }
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.set_always_on_top(config.always_on_top);
@@ -325,6 +356,7 @@ pub fn run() {
             get_config,
             set_config,
             quit_app,
+            get_lan_ip,
             record_window_diag
         ])
         .setup(move |app| {
@@ -336,6 +368,7 @@ pub fn run() {
             let cfg = Arc::new(Mutex::new(config.clone()));
             app.manage(ConfigState(cfg.clone()));
             app.manage(ConfigDir(dir));
+            app.manage(StoreState(store.clone()));
 
             // start background services
             server::start(store.clone(), 7799);
@@ -343,6 +376,12 @@ pub fn run() {
             net::start(store.clone(), cfg.clone());
             claude::start(store.clone());
             codex::start(store.clone());
+            device::apply(
+                store.clone(),
+                config.device_api,
+                config.device_api_port,
+                &config.device_api_token,
+            );
 
             // launch at login: sync with config on startup
             config::apply_launch_at_login(config.launch_at_login);

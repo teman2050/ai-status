@@ -16,6 +16,9 @@ export interface AppConfig {
   claude_hooks: boolean; // auto-manage Claude Code hook entries (built-in hook client)
   codex_notify: boolean; // auto-manage the Codex notify entry (chains any original notifier)
   cursor_hooks: boolean; // auto-manage Cursor hook entries (built-in hook client)
+  device_api: boolean; // LAN device API for hardware displays (ESP32 etc.)
+  device_api_port: number;
+  device_api_token: string; // optional; empty = no auth
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -32,6 +35,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   claude_hooks: true,
   codex_notify: true,
   cursor_hooks: true,
+  device_api: false,
+  device_api_port: 7788,
+  device_api_token: "",
 };
 
 export const IN_TAURI = "__TAURI_INTERNALS__" in window;

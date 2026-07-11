@@ -3,9 +3,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tiny_http::{Header, Method, Request, Response, Server};
 
-type Resp = Response<std::io::Cursor<Vec<u8>>>;
+pub(crate) type Resp = Response<std::io::Cursor<Vec<u8>>>;
 
-fn json_response(status: u16, body: String) -> Resp {
+pub(crate) fn json_response(status: u16, body: String) -> Resp {
     let mut resp = Response::from_string(body).with_status_code(status);
     for (key, value) in [
         ("Content-Type", "application/json"),

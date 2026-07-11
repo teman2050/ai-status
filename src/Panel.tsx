@@ -76,6 +76,15 @@ export default function Panel() {
     );
   }, []);
 
+  // LAN IP shown next to the device-API toggle so users can verify from a phone
+  const [lanIp, setLanIp] = useState("");
+  useEffect(() => {
+    if (!IN_TAURI || !cfg.device_api) return;
+    void import("@tauri-apps/api/core").then(({ invoke }) =>
+      invoke<string>("get_lan_ip").then(setLanIp),
+    );
+  }, [cfg.device_api]);
+
   useEffect(() => {
     if (!IN_TAURI || !IS_WINDOWS) return;
     void import("@tauri-apps/api/window").then(({ getCurrentWindow }) =>
@@ -269,6 +278,25 @@ export default function Panel() {
           <span>{t("network_probe")}</span>
           <Toggle on={cfg.network_probe} onClick={() => update({ network_probe: !cfg.network_probe })} />
         </div>
+      </section>
+
+      <section className="panel-sec">
+        <div className="panel-label">{t("sec_device")}</div>
+        <div className="row">
+          <span>{t("device_api")}</span>
+          <Toggle on={cfg.device_api} onClick={() => update({ device_api: !cfg.device_api })} />
+        </div>
+        {cfg.device_api && (
+          <>
+            <div className="row">
+              <span>{t("device_addr")}</span>
+              <span className="row-val">
+                {lanIp ? `${lanIp}:${cfg.device_api_port}` : "…"}
+              </span>
+            </div>
+            <div className="panel-onboard-hint">{t("device_hint")}</div>
+          </>
+        )}
       </section>
 
       <footer className="panel-foot">

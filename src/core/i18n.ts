@@ -31,6 +31,13 @@ const T: Dict = {
   codex_notify: { zh: "自动接入 Codex", en: "Auto-connect Codex" },
   cursor_hooks: { zh: "自动接入 Cursor", en: "Auto-connect Cursor" },
   network_probe: { zh: "网络探测", en: "Network probe" },
+  sec_device: { zh: "硬件显示端", en: "Hardware display" },
+  device_api: { zh: "局域网设备 API（ESP32 等）", en: "LAN device API (ESP32 etc.)" },
+  device_addr: { zh: "设备地址", en: "Device address" },
+  device_hint: {
+    zh: "设备通过 UDP 广播自动发现本机，无需填 IP。",
+    en: "Devices auto-discover this PC via UDP broadcast.",
+  },
   local_note: { zh: "本地运行 · 不联网", en: "Local only · offline" },
   quit: { zh: "退出", en: "Quit" },
   net_down: { zh: "断网", en: "Offline" },
