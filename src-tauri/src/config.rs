@@ -23,6 +23,10 @@ pub struct Config {
     pub language: String, // "auto" | "zh" | "en"
     #[serde(default = "default_true")]
     pub claude_hooks: bool, // auto-manage Claude Code hook entries (built-in hook client)
+    #[serde(default = "default_true")]
+    pub codex_notify: bool, // auto-manage the Codex notify entry (chains any original notifier)
+    #[serde(default = "default_true")]
+    pub cursor_hooks: bool, // auto-manage Cursor hook entries (built-in hook client)
 }
 
 fn default_lang() -> String {
@@ -51,6 +55,8 @@ impl Default for Config {
             compact: false,
             language: "auto".to_string(),
             claude_hooks: true,
+            codex_notify: true,
+            cursor_hooks: true,
         }
     }
 }

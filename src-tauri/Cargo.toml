@@ -23,6 +23,8 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 # preserve_order: rewriting ~/.claude/settings.json must keep the user's key order intact
 serde_json = { version = "1", features = ["preserve_order"] }
+# lossless TOML editing: rewriting ~/.codex/config.toml must keep comments and formatting
+toml_edit = "0.22"
 tiny_http = "0.12"
 # already in the dependency tree via tauri; declared directly for local-time quota-reset math
 chrono = { version = "0.4", default-features = false, features = ["clock"] }

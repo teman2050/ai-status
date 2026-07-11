@@ -14,6 +14,8 @@ export interface AppConfig {
   compact: boolean; // floating widget compact (collapsed) mode
   language: LangSetting;
   claude_hooks: boolean; // auto-manage Claude Code hook entries (built-in hook client)
+  codex_notify: boolean; // auto-manage the Codex notify entry (chains any original notifier)
+  cursor_hooks: boolean; // auto-manage Cursor hook entries (built-in hook client)
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -28,6 +30,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   compact: false,
   language: "auto",
   claude_hooks: true,
+  codex_notify: true,
+  cursor_hooks: true,
 };
 
 export const IN_TAURI = "__TAURI_INTERNALS__" in window;

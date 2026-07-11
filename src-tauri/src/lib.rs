@@ -1,14 +1,17 @@
 mod claude;
 mod claude_hooks;
 mod codex;
+mod codex_notify;
 mod config;
+mod cursor_hooks;
 mod hook_client;
 mod net;
 mod server;
 mod store;
 mod watcher;
 
-/// Entry point for `--hook <tool>` (the binary doubling as a Claude Code hook command).
+/// Entry point for `--hook <tool>` (the binary doubling as the hook/notify command for
+/// Claude Code, Codex, and Cursor).
 pub fn hook_client_main(tool: &str) {
     hook_client::run(tool);
 }
@@ -278,19 +281,29 @@ fn set_config(
     config: Config,
 ) {
     config::save(&dir.0, &config);
-    let (launch_changed, hooks_changed) = {
+    let (launch_changed, claude_changed, codex_changed, cursor_changed) = {
         let mut cur = state.0.lock().unwrap();
         let launch = cur.launch_at_login != config.launch_at_login;
-        let hooks = cur.claude_hooks != config.claude_hooks;
+        let claude = cur.claude_hooks != config.claude_hooks;
+        let codex = cur.codex_notify != config.codex_notify;
+        let cursor = cur.cursor_hooks != config.cursor_hooks;
         *cur = config.clone();
-        (launch, hooks)
+        (launch, claude, codex, cursor)
     };
     if launch_changed {
         config::apply_launch_at_login(config.launch_at_login);
     }
-    if hooks_changed {
+    if claude_changed {
         let enabled = config.claude_hooks;
         std::thread::spawn(move || claude_hooks::sync(enabled));
+    }
+    if codex_changed {
+        let enabled = config.codex_notify;
+        std::thread::spawn(move || codex_notify::sync(enabled));
+    }
+    if cursor_changed {
+        let enabled = config.cursor_hooks;
+        std::thread::spawn(move || cursor_hooks::sync(enabled));
     }
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.set_always_on_top(config.always_on_top);
@@ -334,11 +347,16 @@ pub fn run() {
             // launch at login: sync with config on startup
             config::apply_launch_at_login(config.launch_at_login);
 
-            // Claude Code hooks: keep settings.json in sync on startup (install on first
-            // run, self-repair after the app moves, migrate legacy Python entries)
+            // Tool auto-connect: keep each tool's config in sync on startup (install on
+            // first run, self-repair after the app moves, migrate legacy Python entries)
             {
-                let enabled = config.claude_hooks;
-                std::thread::spawn(move || claude_hooks::sync(enabled));
+                let (claude, codex, cursor) =
+                    (config.claude_hooks, config.codex_notify, config.cursor_hooks);
+                std::thread::spawn(move || {
+                    claude_hooks::sync(claude);
+                    codex_notify::sync(codex);
+                    cursor_hooks::sync(cursor);
+                });
             }
 
             // menu-bar progress: when on, draw the top 4 task statuses as colored rings for the tray icon

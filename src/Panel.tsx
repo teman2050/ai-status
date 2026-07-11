@@ -258,6 +258,14 @@ export default function Panel() {
           <Toggle on={cfg.claude_hooks} onClick={() => update({ claude_hooks: !cfg.claude_hooks })} />
         </div>
         <div className="row">
+          <span>{t("codex_notify")}</span>
+          <Toggle on={cfg.codex_notify} onClick={() => update({ codex_notify: !cfg.codex_notify })} />
+        </div>
+        <div className="row">
+          <span>{t("cursor_hooks")}</span>
+          <Toggle on={cfg.cursor_hooks} onClick={() => update({ cursor_hooks: !cfg.cursor_hooks })} />
+        </div>
+        <div className="row">
           <span>{t("network_probe")}</span>
           <Toggle on={cfg.network_probe} onClick={() => update({ network_probe: !cfg.network_probe })} />
         </div>
