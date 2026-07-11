@@ -27,6 +27,7 @@ const T: Dict = {
   language: { zh: "语言", en: "Language" },
   menubar_progress: { zh: "菜单栏显示进度（最多 4）", en: "Menu-bar progress (max 4)" },
   launch_at_login: { zh: "开机自启", en: "Launch at login" },
+  claude_hooks: { zh: "自动接入 Claude Code", en: "Auto-connect Claude Code" },
   network_probe: { zh: "网络探测", en: "Network probe" },
   local_note: { zh: "本地运行 · 不联网", en: "Local only · offline" },
   quit: { zh: "退出", en: "Quit" },

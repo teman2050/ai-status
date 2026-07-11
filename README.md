@@ -54,7 +54,7 @@ Windows installers (`.msi` / `-setup.exe`) are built on demand by GitHub Actions
 
 Tool status is reported by **local adapters** (hook / notify scripts) to `127.0.0.1:7799` (a localhost-only port). Adapters send only "tool name / project name / session id / status summary / token count" — **never your prompts, code, full logs, API keys, or environment variables.**
 
-- **Claude Code** — register `adapters/claude-code/asb_hook.py` in the hooks section of `~/.claude/settings.json`. Without the hook, AI STATUS still falls back to recent local transcripts under `~/.claude/projects` to detect usage-limit/quota blocks.
+- **Claude Code** — connected automatically: on startup the app registers itself as the hook command in `~/.claude/settings.json` (the binary doubles as the hook client via `--hook claude`, so no Python is needed). It only ever adds/updates/removes its own entries — hooks from other tools are left untouched — and the panel's "Auto-connect Claude Code" toggle removes them again. For development, `adapters/claude-code/asb_hook.py` can still be registered manually. Without any hook, AI STATUS falls back to recent local transcripts under `~/.claude/projects` to detect usage-limit/quota blocks.
 - **Codex** — point `notify` in `~/.codex/config.toml` at `adapters/codex/asb_notify_chain.sh` (turn logs are polled automatically). Current Codex desktop/CLI rollout logs are supported, including the newer `payload.id` session field and activity events emitted after recent Codex updates.
 - **Cursor** — point `~/.cursor/hooks.json` at `adapters/cursor/asb_cursor_hook.py`.
 

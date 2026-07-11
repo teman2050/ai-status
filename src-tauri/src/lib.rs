@@ -1,10 +1,17 @@
 mod claude;
+mod claude_hooks;
 mod codex;
 mod config;
+mod hook_client;
 mod net;
 mod server;
 mod store;
 mod watcher;
+
+/// Entry point for `--hook <tool>` (the binary doubling as a Claude Code hook command).
+pub fn hook_client_main(tool: &str) {
+    hook_client::run(tool);
+}
 
 use config::{Config, ConfigDir, ConfigState};
 use std::{
@@ -271,14 +278,19 @@ fn set_config(
     config: Config,
 ) {
     config::save(&dir.0, &config);
-    let launch_changed = {
+    let (launch_changed, hooks_changed) = {
         let mut cur = state.0.lock().unwrap();
-        let changed = cur.launch_at_login != config.launch_at_login;
+        let launch = cur.launch_at_login != config.launch_at_login;
+        let hooks = cur.claude_hooks != config.claude_hooks;
         *cur = config.clone();
-        changed
+        (launch, hooks)
     };
     if launch_changed {
         config::apply_launch_at_login(config.launch_at_login);
+    }
+    if hooks_changed {
+        let enabled = config.claude_hooks;
+        std::thread::spawn(move || claude_hooks::sync(enabled));
     }
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.set_always_on_top(config.always_on_top);
@@ -321,6 +333,13 @@ pub fn run() {
 
             // launch at login: sync with config on startup
             config::apply_launch_at_login(config.launch_at_login);
+
+            // Claude Code hooks: keep settings.json in sync on startup (install on first
+            // run, self-repair after the app moves, migrate legacy Python entries)
+            {
+                let enabled = config.claude_hooks;
+                std::thread::spawn(move || claude_hooks::sync(enabled));
+            }
 
             // menu-bar progress: when on, draw the top 4 task statuses as colored rings for the tray icon
             {

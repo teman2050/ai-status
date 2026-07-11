@@ -2,5 +2,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    // Hook-client mode: Claude Code invokes this same binary as a hook command
+    // (`"AI STATUS" --hook claude`). Handle it before any Tauri setup so no window,
+    // tray, or server is touched, then exit immediately.
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(i) = args.iter().position(|a| a == "--hook") {
+        let tool = args.get(i + 1).map(String::as_str).unwrap_or("claude");
+        agent_status_board_lib::hook_client_main(tool);
+        return;
+    }
     agent_status_board_lib::run()
 }

@@ -254,6 +254,10 @@ export default function Panel() {
           <Toggle on={cfg.launch_at_login} onClick={() => update({ launch_at_login: !cfg.launch_at_login })} />
         </div>
         <div className="row">
+          <span>{t("claude_hooks")}</span>
+          <Toggle on={cfg.claude_hooks} onClick={() => update({ claude_hooks: !cfg.claude_hooks })} />
+        </div>
+        <div className="row">
           <span>{t("network_probe")}</span>
           <Toggle on={cfg.network_probe} onClick={() => update({ network_probe: !cfg.network_probe })} />
         </div>

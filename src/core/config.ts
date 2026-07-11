@@ -13,6 +13,7 @@ export interface AppConfig {
   menubar_progress: boolean;
   compact: boolean; // floating widget compact (collapsed) mode
   language: LangSetting;
+  claude_hooks: boolean; // auto-manage Claude Code hook entries (built-in hook client)
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -26,6 +27,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   menubar_progress: false,
   compact: false,
   language: "auto",
+  claude_hooks: true,
 };
 
 export const IN_TAURI = "__TAURI_INTERNALS__" in window;
