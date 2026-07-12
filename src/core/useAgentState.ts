@@ -5,7 +5,10 @@ import { pruneDoneTasks } from "./status";
 import type { Snapshot } from "./types";
 import { EMPTY_SNAPSHOT } from "./types";
 
-const POLL_MS = 1000;
+// Poll fast enough that idle->running (and other status flips) show promptly: the hook writes
+// the event to the store in ~50ms, so the poll interval is the dominant client-side latency.
+// The floating widget is lightweight and the local server answers in ~25ms, so 350ms is cheap.
+const POLL_MS = 350;
 
 export function useAgentState(useMock: boolean): Snapshot {
   const [snap, setSnap] = useState<Snapshot>(EMPTY_SNAPSHOT);
