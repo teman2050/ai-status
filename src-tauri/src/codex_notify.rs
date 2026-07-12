@@ -33,8 +33,14 @@ fn our_notify(exe: &Path, chain: &[String]) -> Vec<String> {
     v
 }
 
+/// Legacy = the notify ENTRY POINT is our old adapter — the installers wrote
+/// `["bash", ".../asb_notify_chain.sh"]` or `["python3", ".../asb_notify.py"]`, so the
+/// script sits in the first two args. A FOREIGN notifier that merely mentions our script
+/// in a later argument (e.g. Codex Computer Use wrapping us via
+/// `--previous-notify '["bash",".../asb_notify_chain.sh"]'`) is not ours: it must be
+/// chained like any foreign notifier, never migrated (migration would drop it).
 fn is_legacy(args: &[String]) -> bool {
-    args.iter().any(|a| a.contains("asb_notify"))
+    args.iter().take(2).any(|a| a.contains("asb_notify"))
 }
 
 /// A notify command is ours when it runs this app in hook mode, or the legacy Python
@@ -305,6 +311,49 @@ mod tests {
         assert_eq!(
             read_notify(&cfg).unwrap(),
             ["C:/OpenAI/codex-computer-use.exe", "turn-ended"]
+        );
+    }
+
+    /// Real-world macOS shape: Codex Computer Use is the entry point and carries OUR old
+    /// chain script inside its --previous-notify JSON argument. That mention must not make
+    /// it "legacy": it's a foreign notifier and gets chained intact, never migrated away.
+    #[test]
+    fn foreign_wrapper_mentioning_legacy_script_is_chained_not_migrated() {
+        let dir = TempDir::new("wrapper");
+        let exe = fake_exe(&dir);
+        let cfg = dir.path("config.toml");
+        fs::write(
+            &cfg,
+            "notify = [\"/Apps/SkyComputerUseClient\", \"turn-ended\", \"--previous-notify\", '[\"bash\",\"/repo/adapters/codex/asb_notify_chain.sh\"]']\n",
+        )
+        .unwrap();
+
+        assert!(apply(&cfg, &exe, true).unwrap());
+        let notify = read_notify(&cfg).unwrap();
+        assert_eq!(
+            notify[1..],
+            [
+                "--hook",
+                "codex",
+                "--chain",
+                "/Apps/SkyComputerUseClient",
+                "turn-ended",
+                "--previous-notify",
+                r#"["bash","/repo/adapters/codex/asb_notify_chain.sh"]"#
+            ],
+            "the wrapper must survive verbatim in the chain"
+        );
+
+        // disabling restores the wrapper exactly as it was
+        assert!(apply(&cfg, &exe, false).unwrap());
+        assert_eq!(
+            read_notify(&cfg).unwrap(),
+            [
+                "/Apps/SkyComputerUseClient",
+                "turn-ended",
+                "--previous-notify",
+                r#"["bash","/repo/adapters/codex/asb_notify_chain.sh"]"#
+            ]
         );
     }
 
