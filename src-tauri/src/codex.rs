@@ -225,7 +225,14 @@ fn tool_event(connected: bool) -> IncomingEvent {
     }
 }
 
-fn event(tool_id: &str, event_type: &str, task_id: &str, workspace: &str, msg: &str) -> IncomingEvent {
+fn event(
+    tool_id: &str,
+    event_type: &str,
+    task_id: &str,
+    workspace: &str,
+    msg: &str,
+    transcript: Option<&str>,
+) -> IncomingEvent {
     IncomingEvent {
         tool_id: tool_id.to_string(),
         event_type: event_type.to_string(),
@@ -236,15 +243,19 @@ fn event(tool_id: &str, event_type: &str, task_id: &str, workspace: &str, msg: &
         status: None,
         message: Some(msg.to_string()),
         tokens: None,
-        transcript_path: None,
+        // The rollout path lets the store's mtime heartbeat (refresh_liveness) keep a long
+        // running turn alive: codex.rs only emits on status change, so without this a turn
+        // that runs quietly past RUNNING_STALE_TTL would be misread as "waiting for input".
+        transcript_path: transcript.map(str::to_string),
         quota_reset: None,
         timestamp: None,
     }
 }
 
-/// Scan active rollouts once, returning task_id -> (workspace, status).
+/// Scan active rollouts once, returning task_id -> (workspace, status, rollout_path).
 /// status = "running" or "error" (turn_aborted); finished turns are not returned.
-fn scan_active(base: &PathBuf) -> HashMap<String, (String, &'static str)> {
+/// rollout_path feeds the store's liveness heartbeat so a long, quiet turn stays "running".
+fn scan_active(base: &PathBuf) -> HashMap<String, (String, &'static str, String)> {
     let mut active = HashMap::new();
     for day in recent_day_dirs(base) {
         let files = match fs::read_dir(&day) {
@@ -266,7 +277,10 @@ fn scan_active(base: &PathBuf) -> HashMap<String, (String, &'static str)> {
             // read only the first line (session_meta); don't read the whole rollout for one line (can be several MB)
             let first = read_first_line(&path);
             if let Some((sid, ws)) = first.as_deref().and_then(parse_session_meta) {
-                active.insert(format!("codex-{sid}"), (ws, status));
+                active.insert(
+                    format!("codex-{sid}"),
+                    (ws, status, path.to_string_lossy().to_string()),
+                );
             }
         }
     }
@@ -346,20 +360,20 @@ pub fn start(store: Arc<Mutex<Store>>) {
             {
                 let mut s = store.lock().unwrap();
                 // newly appeared or status changed -> report the corresponding event
-                for (id, (ws, status)) in &active {
+                for (id, (ws, status, path)) in &active {
                     if prev.get(id) != Some(status) {
                         // send only the status semantics; text is localized on the frontend, no hardcoded strings
                         let et = match *status {
                             "error" => "task_error",
                             _ => "task_started",
                         };
-                        s.apply(event("codex", et, id, ws, ""));
+                        s.apply(event("codex", et, id, ws, "", Some(path)));
                     }
                 }
                 // turns that disappeared (finished) -> done
                 for id in prev.keys() {
                     if !active.contains_key(id) {
-                        s.apply(event("codex", "task_done", id, "Codex", ""));
+                        s.apply(event("codex", "task_done", id, "Codex", "", None));
                     }
                 }
                 // tool presence: online only while Codex was used recently. Emitted after the
@@ -380,7 +394,7 @@ pub fn start(store: Arc<Mutex<Store>>) {
             }
             present = recent;
             let cur: HashMap<String, &'static str> =
-                active.iter().map(|(k, (_, st))| (k.clone(), *st)).collect();
+                active.iter().map(|(k, (_, st, _))| (k.clone(), *st)).collect();
             prev = cur;
             thread::sleep(Duration::from_secs(POLL_SECS));
         }
@@ -560,6 +574,31 @@ mod tests {
         let f = fs::OpenOptions::new().write(true).open(&path).unwrap();
         f.set_times(fs::FileTimes::new().set_modified(old)).unwrap();
         assert!(!any_rollout_recent(&dir, StdDuration::from_secs(1800)));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn scan_active_carries_rollout_path_for_heartbeat() {
+        // The rollout path must ride along so the store's mtime heartbeat can keep a long,
+        // quiet running turn alive instead of flipping it to "waiting for input".
+        let dir = std::env::temp_dir().join(format!("asb_codex_scanpath_{}", std::process::id()));
+        let day = dir.join("2026").join("07").join("12");
+        fs::create_dir_all(&day).unwrap();
+        let path = day.join("rollout-xyz.jsonl");
+        let content = concat!(
+            r#"{"type":"session_meta","payload":{"session_id":"sess-1","cwd":"P:/AI/coding2026/aistatus"}}"#,
+            "\n",
+            r#"{"type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}"#,
+            "\n",
+        );
+        fs::write(&path, content).unwrap();
+
+        let active = scan_active(&dir);
+        let (ws, status, rollout) = active.get("codex-sess-1").expect("session should be active");
+        assert_eq!(*status, "running");
+        assert_eq!(ws, "aistatus");
+        assert_eq!(rollout, &path.to_string_lossy().to_string());
 
         fs::remove_dir_all(&dir).ok();
     }
