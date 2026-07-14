@@ -301,23 +301,36 @@ fn parse_rate_limits(tail: &[String]) -> Option<QuotaUsage> {
             .get("payload")
             .and_then(|p| p.get("rate_limits"))
             .or_else(|| v.get("rate_limits"))?;
-        let win = |k: &str| -> (f64, i64) {
-            rl.get(k)
-                .map(|w| {
-                    (
-                        w.get("used_percent").and_then(|x| x.as_f64()).unwrap_or(0.0),
-                        w.get("resets_at").and_then(|x| x.as_i64()).unwrap_or(0),
-                    )
-                })
-                .unwrap_or((0.0, 0))
-        };
-        let (h5_used, h5_reset) = win("primary");
-        let (week_used, week_reset) = win("secondary");
+        // Classify each window by its LENGTH, not its position: codex <=0.14x always sent
+        // primary=5h / secondary=weekly, but 0.144+ reports whichever windows exist — a real
+        // 0.144.2 rollout carries the weekly window in `primary` with `secondary: null`.
+        // Positional mapping would label that weekly usage as the 5h quota. A window of a
+        // day or longer is the weekly one; without window_minutes fall back to the position.
+        let mut h5 = (0.0, 0i64);
+        let mut week = (0.0, 0i64);
+        for key in ["primary", "secondary"] {
+            let Some(w) = rl.get(key).filter(|w| !w.is_null()) else {
+                continue;
+            };
+            let reading = (
+                w.get("used_percent").and_then(|x| x.as_f64()).unwrap_or(0.0),
+                w.get("resets_at").and_then(|x| x.as_i64()).unwrap_or(0),
+            );
+            let is_week = match w.get("window_minutes").and_then(|x| x.as_i64()) {
+                Some(m) => m >= 24 * 60,
+                None => key == "secondary",
+            };
+            if is_week {
+                week = reading;
+            } else {
+                h5 = reading;
+            }
+        }
         return Some(QuotaUsage {
-            h5_used,
-            h5_reset,
-            week_used,
-            week_reset,
+            h5_used: h5.0,
+            h5_reset: h5.1,
+            week_used: week.0,
+            week_reset: week.1,
         });
     }
     None
@@ -521,6 +534,19 @@ mod tests {
         assert_eq!(workspace_from_cwd("/a/b/SizeKit"), "SizeKit");
         assert_eq!(workspace_from_cwd(r"C:\Users\Admin\proj\LifeAdminPet\"), "LifeAdminPet");
         assert_eq!(workspace_from_cwd(""), "Codex");
+    }
+
+    /// Real codex 0.144.2 rollout shape (2026-07-14): the WEEKLY window sits in `primary`
+    /// (window_minutes 10080) and `secondary` is null. Positional mapping used to label
+    /// this as 5h usage; classification must go by window length.
+    #[test]
+    fn parse_rate_limits_weekly_in_primary_with_null_secondary() {
+        let line = r#"{"timestamp":"2026-07-13T15:40:01","type":"event_msg","payload":{"type":"token_count","info":{},"rate_limits":{"limit_id":"codex","limit_name":null,"primary":{"used_percent":11.0,"window_minutes":10080,"resets_at":1784518622},"secondary":null,"credits":null,"individual_limit":null,"plan_type":"plus","rate_limit_reached_type":null}}}"#.to_string();
+        let u = parse_rate_limits(&[line]).unwrap();
+        assert_eq!(u.week_used, 11.0, "weekly usage must land in the weekly slot");
+        assert_eq!(u.week_reset, 1784518622);
+        assert_eq!(u.h5_used, 0.0, "no 5h window reported -> stays empty");
+        assert_eq!(u.h5_reset, 0);
     }
 
     #[test]
